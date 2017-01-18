@@ -1,7 +1,7 @@
 /*
 Using Geany Editor
 Compile with gcc -Wall -c "%f" -DUSE_OPENGL -DUSE_EGL -DIS_RPI -DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -g -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -ftree-vectorize -pipe -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi $(pkg-config --cflags gtk+-3.0) -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads -I/opt/vc/include/interface/vmcs_host/linux -I/home/pi/userland -I./ -Wno-deprecated-declarations
-Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags gtk+-3.0) -Wl,--whole-archive -I/opt/vc/include -I/home/pi/userland -L/opt/vc/lib/ -lGLESv2 -lEGL -lopenmaxil -lbcm_host -lvcos -lvchiq_arm -lpthread -lrt -L/opt/vc/src/hello_pi/libs/vgfont -ldl -lm -Wl,--no-whole-archive -rdynamic $(pkg-config --libs gtk+-3.0) $(pkg-config --libs libavcodec libavformat libavutil libswscale) -lasound
+Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags gtk+-3.0) -Wl,--whole-archive -I/opt/vc/include -I/home/pi/userland -L/opt/vc/lib/ -lGLESv2 -lEGL -lopenmaxil -lbcm_host -lvcos -lvchiq_arm -lpthread -lrt -L/opt/vc/src/hello_pi/libs/vgfont -ldl -lm -Wl,--no-whole-archive -rdynamic $(pkg-config --libs gtk+-3.0) $(pkg-config --libs libavcodec libavformat libavutil libswscale) -lasound $(pkg-config --libs sqlite3)
 */
 /*
 To Do
@@ -49,6 +49,7 @@ GtkWidget *image;
 GtkWidget *window;
 GdkPixbuf *pixbuf;
 GtkWidget *box1;
+GtkWidget *horibox;
 GtkWidget *button_box;
 GtkWidget *button1;
 GtkWidget *button2;
@@ -69,6 +70,30 @@ GtkWidget *listview;
 GtkListStore *store;
 GtkTreeIter iter;
 GtkWidget *scrolled_window;
+GtkWidget *levelbar1;
+GtkWidget *levelbar2;
+GtkWidget *levelbar3;
+GtkWidget *levelbar4;
+GtkWidget *levelbar5;
+GtkWidget *levelbar6;
+GtkWidget *verti1;
+GtkWidget *label1;
+GtkWidget *verti2;
+GtkWidget *label2;
+GtkWidget *verti3;
+GtkWidget *label3;
+GtkWidget *verti4;
+GtkWidget *label4;
+GtkWidget *verti5;
+GtkWidget *label5;
+GtkWidget *verti6;
+GtkWidget *label6;
+char leveltext1[10];
+char leveltext2[10];
+char leveltext3[10];
+char leveltext4[10];
+char leveltext5[10];
+char leveltext6[10];
 
 GMutex pixbufmutex;
 
@@ -104,7 +129,12 @@ int now_playing_frame;
 int64_t videoduration;
 
 long long usecs; // microseconds
+long long usecs1; // microseconds
+long long usecs2; // microseconds
 int begindrawcallback = 0;
+
+long diff1, diff2, diff3, diff4, diff5, diff6;
+// read, decode, tex2d, draw, glread, cairo
 
 typedef struct
 {
@@ -212,6 +242,58 @@ long get_next_time_microseconds()
     micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
     delta = micros - usecs;
     usecs = micros;
+    return(delta);
+}
+
+long get_first_time_microseconds_1()
+{
+	long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+	micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+	usecs1 = micros;
+	return(0L);
+}
+
+long get_next_time_microseconds_1()
+{
+    long delta;
+    long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+    micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+    delta = micros - usecs1;
+    usecs1 = micros;
+    return(delta);
+}
+
+long get_first_time_microseconds_2()
+{
+	long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+	micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+	usecs2 = micros;
+	return(0L);
+}
+
+long get_next_time_microseconds_2()
+{
+    long delta;
+    long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+    micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+    delta = micros - usecs2;
+    usecs2 = micros;
     return(delta);
 }
 
@@ -1652,6 +1734,10 @@ int open_file(char * filename)
 		return -1; // Could not open video codec
 
 	//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
+/*
+    sws_context = sws_getCachedContext(sws_context, frame->width, frame->height, AV_PIX_FMT_YUV420P, frame2->width, frame2->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
+    sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
+*/
 
 	AVStream *st = pFormatCtx->streams[videoStream];
     double frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
@@ -1684,7 +1770,9 @@ int open_file(char * filename)
 	av_opt_set_int(swr, "out_channel_layout", pCodecCtxA->channel_layout,  0);
 	av_opt_set_int(swr, "in_sample_rate",     pCodecCtxA->sample_rate, 0);
 	av_opt_set_int(swr, "out_sample_rate",    pCodecCtxA->sample_rate, 0);
-	av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
+	//av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
+	av_opt_set_sample_fmt(swr, "in_sample_fmt",  pCodecCtxA->sample_fmt, 0);
+	
 	av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
 	swr_init(swr);
 
@@ -1698,6 +1786,49 @@ gboolean enable_play_button(gpointer data)
 {
 	gtk_widget_set_sensitive (button2, FALSE);
 	gtk_widget_set_sensitive (button1, TRUE);
+	return FALSE;
+}
+
+gboolean setLevel1(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), *((int*)data));
+	sprintf(leveltext1, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label1), leveltext1);
+	return FALSE;
+}
+gboolean setLevel2(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), *((int*)data));
+	sprintf(leveltext2, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label2), leveltext2);
+	return FALSE;
+}
+gboolean setLevel3(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), *((int*)data));
+	sprintf(leveltext3, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label3), leveltext3);
+	return FALSE;
+}
+gboolean setLevel4(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), *((int*)data));
+	sprintf(leveltext4, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label4), leveltext4);
+	return FALSE;
+}
+gboolean setLevel5(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), *((int*)data));
+	sprintf(leveltext5, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label5), leveltext5);
+	return FALSE;
+}
+gboolean setLevel6(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), *((int*)data));
+	sprintf(leveltext6, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(label6), leveltext6);
 	return FALSE;
 }
 
@@ -1725,18 +1856,24 @@ static gpointer read_frames(gpointer args)
 
 	char *rgba;
 
-//get_first_time_microseconds();
+get_first_time_microseconds_2();
     while ((av_read_frame(pFormatCtx, packet)>=0) && (!stoprequested))
     {
-//long diff=get_next_time_microseconds();
+diff1=get_next_time_microseconds_2();
 //printf("%lu usec av_read_frame\n", diff);
+		if (!(now_playing_frame%10))
+			gdk_threads_add_idle(setLevel1, &diff1);
+
 		if (packet->stream_index==videoStream) 
 		{
 //printf("videoStream %d\n", j); printf("vqlength %d\n", vqLength);
-//get_first_time_microseconds();
+get_first_time_microseconds_2();
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
-//long diff=get_next_time_microseconds();
+diff2=get_next_time_microseconds_2();
 //printf("%lu usec avcodec_decode_video2\n", diff);
+			if (!(now_playing_frame%10))
+				gdk_threads_add_idle(setLevel2, &diff2);
+
 			if (frameFinished)
 			{
 				int width = pCodecCtx->width;
@@ -1759,7 +1896,7 @@ static gpointer read_frames(gpointer args)
 		av_init_packet(packet);
 		packet->data = NULL;
 		packet->size = 0;
-//get_first_time_microseconds();
+get_first_time_microseconds_2();
 	}
 	//avcodec_close(pCodec);
 	//avcodec_close(pCodecA);
@@ -1781,9 +1918,6 @@ static gpointer read_frames(gpointer args)
 //printf("aq\n");
 	aq_drain(&aq);
 
-	playerstatus = idle;
-	gdk_threads_add_idle(enable_play_button, NULL);
-
 	i=pthread_join(tid[0], NULL);
 //printf("join 0 %d\n", i);
 	i=pthread_join(tid[1], NULL);
@@ -1799,6 +1933,11 @@ static gpointer read_frames(gpointer args)
 	g_mutex_lock(&pixbufmutex);
 	begindrawcallback = 0;
 	g_mutex_unlock(&pixbufmutex);
+
+	if (!stoprequested)
+		gdk_threads_add_idle(enable_play_button, NULL);
+
+	playerstatus = idle;
 
 //printf("Video over!\n");
 	retval_readframes = 0;
@@ -1874,31 +2013,38 @@ void* videoPlayFromQueue(void *arg)
 		//usleep(33670); // 29.7 frames per second
 
 get_first_time_microseconds();
-
 			texImage2D(p->rgba, width/4, height*3/2);
-//long diff=get_next_time_microseconds();
-//printf("%lu usec glTexImage2D\n", diff);
+diff3=get_next_time_microseconds();
+//printf("%lu usec glTexImage2D\n", diff3);
+			if (!(now_playing_frame%10))
+				gdk_threads_add_idle(setLevel3, &diff3);
 
-//get_first_time_microseconds();
+get_first_time_microseconds();
 			redraw_scene(p_state);
 			glFinish();
-//diff=get_next_time_microseconds();
-//printf("%lu usec redraw\n", diff);
+diff4=get_next_time_microseconds();
+//printf("%lu usec redraw\n", diff4);
+			if (!(now_playing_frame%10))
+				gdk_threads_add_idle(setLevel4, &diff4);
 
+get_first_time_microseconds();
 			g_mutex_lock(&pixbufmutex);
-//get_first_time_microseconds();
 			glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
-//diff=get_next_time_microseconds();
-//printf("%lu usec glReadPixels\n", diff);
 			g_mutex_unlock(&pixbufmutex);
-			checkNoGLES2Error();
+diff5=get_next_time_microseconds();
+//printf("%lu usec glReadPixels\n", diff5);
+			if (!(now_playing_frame%10))
+				gdk_threads_add_idle(setLevel5, &diff5);
+
+			//checkNoGLES2Error();
 			gdk_threads_add_idle(invalidate, NULL);
 
 			now_playing_frame = p->label;
 			if (!(now_playing_frame%10))
 				gdk_threads_add_idle(update_hscale, NULL);
 
-long diff=get_next_time_microseconds();
+//long diff=get_next_time_microseconds();
+long diff = diff3 + diff4 + diff5;
 //printf("%lu usec frame\n", diff);
 if (frametime>diff)
 {
@@ -2015,13 +2161,15 @@ static gboolean draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data)
 	g_mutex_lock(&pixbufmutex);
 	if (begindrawcallback)
 	{
-//get_first_time_microseconds();
+get_first_time_microseconds_1();
 		cr = gdk_cairo_create (gtk_widget_get_window(dwgarea));
 		gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
 		cairo_paint(cr);
-		cairo_destroy (cr);
-//long diff=get_next_time_microseconds();
+		cairo_destroy(cr);
+diff6=get_next_time_microseconds_1();
 //printf("%lu usec cairo draw\n", diff);
+		if (!(now_playing_frame%10))
+			gdk_threads_add_idle(setLevel6, &diff6);
 	}
 	g_mutex_unlock(&pixbufmutex);
 
@@ -2056,6 +2204,7 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	}
 
 	playerWidth = 800;
+	//playerWidth = 1280;
 	playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
 	gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
 //printf("gtk_widget_set_size\n");
@@ -2380,6 +2529,7 @@ int main(int argc, char** argv)
 // drawing area
     dwgarea = gtk_drawing_area_new ();
     gtk_widget_set_size_request (dwgarea, 800, 450);
+    //gtk_widget_set_size_request (dwgarea, 1280, 720);
     gtk_container_add(GTK_CONTAINER(box1), dwgarea);
 
     // Signals used to handle the backing surface
@@ -2393,10 +2543,14 @@ int main(int argc, char** argv)
     //g_signal_connect(hscale, "value-changed", G_CALLBACK(hscale_adjustment), NULL);
     gtk_container_add(GTK_CONTAINER(box1), hscale);
 
+// horizontal box
+    horibox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(box1), horibox);
+
 // horizontal button box
     button_box = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_button_box_set_layout((GtkButtonBox *)button_box, GTK_BUTTONBOX_START);
-    gtk_container_add(GTK_CONTAINER(box1), button_box);
+    gtk_container_add(GTK_CONTAINER(horibox), button_box);
 
 // button play
     button1 = gtk_button_new_with_label("Play");
@@ -2408,6 +2562,67 @@ int main(int argc, char** argv)
     gtk_widget_set_sensitive (button2, FALSE);
     g_signal_connect(GTK_BUTTON(button2), "clicked", G_CALLBACK(button2_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box), button2);
+
+// levelbars
+    verti1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti1);
+	levelbar1 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), 0.0);
+	gtk_widget_set_size_request(levelbar1, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar1);
+	gtk_container_add(GTK_CONTAINER(verti1), levelbar1);
+	label1 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti1), label1);
+
+    verti2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti2);
+	levelbar2 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), 0.0);
+	gtk_widget_set_size_request(levelbar2, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar2);
+	gtk_container_add(GTK_CONTAINER(verti2), levelbar2);
+	label2 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti2), label2);
+
+    verti3 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti3);
+	levelbar3 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), 0.0);
+	gtk_widget_set_size_request (levelbar3, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar3);
+	gtk_container_add(GTK_CONTAINER(verti3), levelbar3);
+	label3 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti3), label3);
+
+    verti4 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti4);
+	levelbar4 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), 0.0);
+	gtk_widget_set_size_request(levelbar4, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar4);
+	gtk_container_add(GTK_CONTAINER(verti4), levelbar4);
+	label4 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti4), label4);
+
+    verti5 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti5);
+	levelbar5 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), 0.0);
+	gtk_widget_set_size_request (levelbar5, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar5);
+	gtk_container_add(GTK_CONTAINER(verti5), levelbar5);
+	label5 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti5), label5);
+
+    verti6 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(horibox), verti6);
+	levelbar6 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), 0.0);
+	gtk_widget_set_size_request(levelbar6, 100, 10);
+	//gtk_container_add(GTK_CONTAINER(horibox), levelbar6);
+	gtk_container_add(GTK_CONTAINER(verti6), levelbar6);
+	label6 = gtk_label_new("0");
+	gtk_container_add(GTK_CONTAINER(verti6), label6);
 // box1 contents end
 
 // box2 contents begin
