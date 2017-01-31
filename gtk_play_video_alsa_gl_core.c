@@ -473,7 +473,7 @@ void init_ogl2(CUBE_STATE_T *state)
 
 void exit_func(void) // Function to be passed to atexit().
 {
-	//UserData *userData = p_state->user_data;
+	UserData *userData = p_state->user_data;
 
 /*
 // unbind frame buffer
@@ -483,11 +483,15 @@ void exit_func(void) // Function to be passed to atexit().
 	glDeleteFramebuffers(1, &(userData->canvasFrameBuffer));
 */
 
-   // Release OpenGL resources
-   eglMakeCurrent( p_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT );
-   eglDestroySurface( p_state->display, p_state->surface );
-   eglDestroyContext( p_state->display, p_state->context );
-   eglTerminate( p_state->display );
+	// Delete allocated objects
+	glDeleteProgram(userData->programObject);
+	glDeleteTextures(1, &userData->tex);
+
+	// Release OpenGL resources
+	eglMakeCurrent(p_state->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglDestroySurface(p_state->display, p_state->surface);
+	eglDestroyContext(p_state->display, p_state->context);
+	eglTerminate(p_state->display);
 }
 
 // Create a shader object, load the shader source, and
@@ -743,10 +747,10 @@ int Init(CUBE_STATE_T *p_state)
    glVertexAttribPointer ( userData->texCoordLoc, 2, GL_FLOAT,
                            GL_FALSE, 2 * sizeof(GLfloat), tVertices );
 
-   glEnableVertexAttribArray ( userData->positionLoc );
-   glEnableVertexAttribArray ( userData->texCoordLoc );
+   glEnableVertexAttribArray(userData->positionLoc);
+   glEnableVertexAttribArray(userData->texCoordLoc);
    
-   glUniform1i ( userData->samplerLoc, 0 );
+   glUniform1i(userData->samplerLoc, 0);
 
 /*
 	// Create framebuffer
@@ -815,10 +819,10 @@ void texImage2D(char* buf, int width, int height)
 void redraw_scene(CUBE_STATE_T *state)
 {
    // Set the viewport
-   glViewport ( 0, 0, state->screen_width, state->screen_height);
+   glViewport(0, 0, state->screen_width, state->screen_height);
    // Clear the color buffer
    glClear(GL_COLOR_BUFFER_BIT);
-   glDrawElements ( GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices );
+   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
    eglSwapBuffers(p_state->display, p_state->surface);
 }
 
@@ -1019,9 +1023,9 @@ void aq_drain(struct audioqueue **q)
 //printf("aqLength=%d\n", aqLength);
 		pthread_mutex_lock(&aqmutex);
 	}
+//printf("aqLength=0\n");
 	pthread_cond_signal(&aqlowcond); // Should wake up *one* thread
 	pthread_mutex_unlock(&aqmutex);
-//printf("aq_drain exit\n");
 }
 
 void aq_destroy(pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
@@ -1115,16 +1119,32 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	//printf("avail: %d\n", avail);
 	//printf("audio playing %d\n", p->label);
 
-	//printf("writing %d\n", dst_bufsize);
-	err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
-	//printf("snd_pcm_writei err:%d\n", err);
+/*
+	if (playerstatus == draining)
+	{
+		printf("draining\n");
+		if (p->dst_data)
+		{
+			printf("writing %d, data %d\n", p->dst_bufsize, p->dst_data[0]);
+		}
+		else
+			printf("p->dst_data NULL\n");
+	}
+*/
+
 	if (p->dst_data)
 	{
+		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
+//printf("snd_pcm_writei err:%d\n", err);
+
 		av_freep(&(p->dst_data[0]));
 //printf("av_freep dst_data0\n");
-	}
-	av_freep(&(p->dst_data));
+
+		av_freep(&(p->dst_data));
 //printf("av_freep\n");
+	}
+	else
+		err = 0;
 
 	//av_free_packet(p->packet);
 	av_packet_unref(p->packet);
@@ -1167,11 +1187,12 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 		//pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 		//pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 		if ((p = aq_remove(&aq)) == NULL)
+		{
 			break;
+		}
 
 // play 1 period
         err=play_period(handle, p);
-
 /*
 		if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, p->packet)) < 0)
 		{
@@ -1213,7 +1234,6 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 			}
 		}
 */
-// play
 	}
 	return(0);
 }
@@ -1676,7 +1696,6 @@ int open_file(char * filename)
     int i;
 
     /* FFMpeg stuff */
-
     AVDictionary *optionsDict = NULL;
     AVDictionary *optionsDictA = NULL;
 
@@ -1744,6 +1763,8 @@ int open_file(char * filename)
 //    printf("Frame rate = %2.2f\n", frame_rate);
 	frametime = 1000000 / frame_rate - 2000; // usec
 //	printf("frametime-2000 = %d usec\n", frametime);
+
+//	printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
 
 	videoduration = ( pFormatCtx->duration / AV_TIME_BASE ) * frame_rate;
 
@@ -1832,6 +1853,17 @@ gboolean setLevel6(gpointer data)
 	return FALSE;
 }
 
+void resetLevels()
+{
+	diff1 = diff2 = diff3 = diff4 = diff5 = diff6 = 0;
+	gdk_threads_add_idle(setLevel1, &diff1);
+	gdk_threads_add_idle(setLevel2, &diff2);
+	gdk_threads_add_idle(setLevel3, &diff3);
+	gdk_threads_add_idle(setLevel4, &diff4);
+	gdk_threads_add_idle(setLevel5, &diff5);
+	gdk_threads_add_idle(setLevel6, &diff6);
+}
+
 static gpointer read_frames(gpointer args)
 {
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
@@ -1909,10 +1941,12 @@ get_first_time_microseconds_2();
 
 	avformat_close_input(&pFormatCtx);
 
-//printf("vq\n");
 	pthread_mutex_lock(&vqmutex);
+	pthread_mutex_lock(&aqmutex);
 	playerstatus = draining;
 	pthread_mutex_unlock(&vqmutex);
+	pthread_mutex_unlock(&aqmutex);
+//printf("vq\n");
 	vq_drain(&vq);
 
 //printf("aq\n");
@@ -1921,7 +1955,7 @@ get_first_time_microseconds_2();
 	i=pthread_join(tid[0], NULL);
 //printf("join 0 %d\n", i);
 	i=pthread_join(tid[1], NULL);
-//printf("join 0 %d\n", i);
+//printf("join 1 %d\n", i);
 
 	aq_destroy(&aqmutex, &aqlowcond, &aqhighcond);
 	vq_destroy(&vqmutex, &vqlowcond, &vqhighcond);
@@ -1930,16 +1964,18 @@ get_first_time_microseconds_2();
 
 	free(swr);
 
+/*
 	g_mutex_lock(&pixbufmutex);
 	begindrawcallback = 0;
 	g_mutex_unlock(&pixbufmutex);
+*/
 
 	if (!stoprequested)
 		gdk_threads_add_idle(enable_play_button, NULL);
 
 	playerstatus = idle;
 
-//printf("Video over!\n");
+//printf("exiting read_frames\n");
 	retval_readframes = 0;
 	pthread_exit(&retval_readframes);
 }
@@ -2053,7 +2089,6 @@ if (frametime>diff)
 	usleep(diff);
 }
 
-
 /*
 		gdk_cairo_draw_from_gl() // since 3.16
 */
@@ -2069,14 +2104,16 @@ if (frametime>diff)
 		//printf("%lu usec\n", diff);
 	}
 
+/*
 	g_mutex_lock(&pixbufmutex);
 	begindrawcallback = 0;
 	g_mutex_unlock(&pixbufmutex);
+*/
 
 	//g_object_unref(pixbuf);
 	//g_clear_object(&pixbuf);
 
-	//exit_func();
+	exit_func();
 //printf("exiting videoPlayFromQueue\n");
 	retval_video = 0;
 	pthread_exit((void*)&retval_video);
@@ -2192,6 +2229,7 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	aq_init(&aq, &aqmutex, &aqlowcond, &aqhighcond);
 //printf("aq_init\n");
 
+	resetLevels();
 	int ret = open_file(now_playing);
 	if (ret == 0)
 	{
@@ -2501,6 +2539,8 @@ int main(int argc, char** argv)
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     /* Sets the border width of the window. */
     gtk_container_set_border_width (GTK_CONTAINER (window), 2);
+
+	gtk_window_set_title(GTK_WINDOW(window), "Video Player");
 
     /* When the window is given the "delete-event" signal (this is given
      * by the window manager, usually by the "close" option, or on the
