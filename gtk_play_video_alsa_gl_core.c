@@ -35,6 +35,8 @@ To Do
 #include <math.h>
 #include <sched.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/syscall.h>
 
 #include <sqlite3.h> 
 
@@ -88,6 +90,8 @@ GtkWidget *verti5;
 GtkWidget *label5;
 GtkWidget *verti6;
 GtkWidget *label6;
+GtkWidget *statusbar;
+gint context_id;
 char leveltext1[10];
 char leveltext2[10];
 char leveltext3[10];
@@ -125,13 +129,13 @@ cpu_set_t cpu[4];
 
 int playerWidth, playerHeight;
 int frametime;
+double frame_rate;
 int now_playing_frame;
 int64_t videoduration;
 
 long long usecs; // microseconds
 long long usecs1; // microseconds
 long long usecs2; // microseconds
-int begindrawcallback = 0;
 
 long diff1, diff2, diff3, diff4, diff5, diff6;
 // read, decode, tex2d, draw, glread, cairo
@@ -203,6 +207,11 @@ GLfloat tVertices[] = {  0.0f,  1.0f,        // TexCoord 0
                       };
                       
 GLushort indices[] = { 0, 1, 2, 0, 2, 3 };
+
+pid_t gettid( void )
+{
+	return syscall( __NR_gettid );
+}
 
 void print_current_time_with_ms (void)
 {
@@ -855,7 +864,7 @@ struct audioqueue
 };
 struct audioqueue *aq;
 int aqLength;
-const int aqMaxLength = 50;
+const int aqMaxLength = 60;
 pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1114,6 +1123,7 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	snd_pcm_sframes_t avail;
 	int err;
 
+	//printf("Audio %d\n", gettid());
 	//write_status(snd_pcm_state(handle));
 	avail = snd_pcm_avail_update(handle);
 	//printf("avail: %d\n", avail);
@@ -1479,7 +1489,7 @@ struct videoqueue
 };
 struct videoqueue *vq;
 int vqLength;
-const int vqMaxLength = 50;
+const int vqMaxLength = 40;
 pthread_mutex_t vqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t vqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t vqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1691,6 +1701,47 @@ gboolean update_hscale(gpointer data)
 	return FALSE;
 }
 
+char* strreplace(char *src, char *search, char *replace)
+{
+	char *p;
+	char *front;
+	char *dest;
+
+	dest = (char*)malloc(1);
+	dest[0] = '\0';
+	for(front = p = src; (p = strstr(p, search)); front = p)
+	{
+		p[0] = '\0';
+		//printf("%s\n", front);
+		dest = (char*)realloc(dest, strlen(dest)+strlen(front)+1);
+		strcat(dest, front);
+
+		dest = (char*)realloc(dest, strlen(dest)+strlen(replace)+1);
+		strcat(dest, replace);
+
+		p += strlen(search);
+	}
+	//printf("%s\n", front);
+	dest = (char*)realloc(dest, strlen(dest)+strlen(front)+1);
+	strcat(dest, front);
+	
+	//printf("\n%s\n", dest);
+	return dest;
+}
+
+char* strlastpart(char *src, char *search)
+{
+	char *p;
+	char *q;
+
+	q = &src[strlen(src)];
+	for(p = src; (p = strstr(p, search)); p += strlen(search))
+	{
+		q = p;
+	}
+	return q;
+}
+
 int open_file(char * filename)
 {
     int i;
@@ -1702,11 +1753,17 @@ int open_file(char * filename)
     av_register_all();
 
 	if(avformat_open_input(&pFormatCtx, filename, NULL, NULL)!=0)
+	{
+		printf("avformat_open_input()\n");
 		return -1; // Couldn't open file
+	}
   
     // Retrieve stream information
 	if(avformat_find_stream_info(pFormatCtx, NULL)<0)
+	{
+		printf("avformat_find_stream_info()\n");
 		return -1; // Couldn't find stream information
+	}
   
     // Dump information about file onto standard error
 	//av_dump_format(pFormatCtx, 0, filename, 0);
@@ -1721,8 +1778,11 @@ int open_file(char * filename)
 			break;
 		}
 	}
-	if(videoStream==-1)
-		return -1; // Didn't find a video stream
+	if (videoStream==-1)
+	{
+		printf("No video stream found\n");
+//		return -1; // Didn't find a video stream
+	}
 
 	audioStream = -1;
 	for(i=0; i<pFormatCtx->nb_streams; i++)
@@ -1733,8 +1793,11 @@ int open_file(char * filename)
 			break;
 		}
 	}
-//	if(audioStream==-1)
+	if (audioStream==-1)
+	{
+		printf("No audio stream found\n");
 //		return -1; // Didn't find an audio stream
+	}
 
 	// Get a pointer to the codec context for the video stream
 	pCodecCtx=pFormatCtx->streams[videoStream]->codec;
@@ -1743,14 +1806,17 @@ int open_file(char * filename)
 	pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
 	if(pCodec==NULL)
 	{
-		fprintf(stderr, "Unsupported video codec!\n");
+		printf("Unsupported video codec\n");
 		return -1; // Codec not found
 	}
   
-    pCodecCtx->thread_count = 3;
+    pCodecCtx->thread_count = 2;
     // Open codec
 	if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
+	{
+		printf("Video avcodec_open2()\n");
 		return -1; // Could not open video codec
+	}
 
 	//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
 /*
@@ -1759,14 +1825,14 @@ int open_file(char * filename)
 */
 
 	AVStream *st = pFormatCtx->streams[videoStream];
-    double frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
+    frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
 //    printf("Frame rate = %2.2f\n", frame_rate);
 	frametime = 1000000 / frame_rate - 2000; // usec
 //	printf("frametime-2000 = %d usec\n", frametime);
 
-//	printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
+	//printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
 
-	videoduration = ( pFormatCtx->duration / AV_TIME_BASE ) * frame_rate;
+	videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate;
 
 	// Get a pointer to the codec context for the audio stream
     pCodecCtxA=pFormatCtx->streams[audioStream]->codec;
@@ -1776,13 +1842,15 @@ int open_file(char * filename)
 
 	if(pCodecA==NULL)
 	{
-		fprintf(stderr, "Unsupported audio codec!\n");
+		printf("Unsupported audio codec!\n");
 		return -1; // Codec not found
 	}
 
     // Open codec
-    if(avcodec_open2(pCodecCtxA, pCodecA, &optionsDictA)<0){
-        return -1; // Could not open audio codec
+    if(avcodec_open2(pCodecCtxA, pCodecA, &optionsDictA)<0)
+    {
+		printf("Audio avcodec_open2()\n");
+		return -1; // Could not open audio codec
     }
 
 	// Set up SWR context once you've got codec information
@@ -1864,6 +1932,8 @@ void resetLevels()
 	gdk_threads_add_idle(setLevel6, &diff6);
 }
 
+gboolean play_next(gpointer data);
+
 static gpointer read_frames(gpointer args)
 {
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
@@ -1893,6 +1963,7 @@ get_first_time_microseconds_2();
     {
 diff1=get_next_time_microseconds_2();
 //printf("%lu usec av_read_frame\n", diff);
+		//printf("Readframes %d\n", gettid());
 		if (!(now_playing_frame%10))
 			gdk_threads_add_idle(setLevel1, &diff1);
 
@@ -1902,7 +1973,7 @@ diff1=get_next_time_microseconds_2();
 get_first_time_microseconds_2();
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
 diff2=get_next_time_microseconds_2();
-//printf("%lu usec avcodec_decode_video2\n", diff);
+//printf("%lu usec avcodec_decode_video2\n", diff2);
 			if (!(now_playing_frame%10))
 				gdk_threads_add_idle(setLevel2, &diff2);
 
@@ -1964,16 +2035,13 @@ get_first_time_microseconds_2();
 
 	free(swr);
 
-/*
-	g_mutex_lock(&pixbufmutex);
-	begindrawcallback = 0;
-	g_mutex_unlock(&pixbufmutex);
-*/
-
 	if (!stoprequested)
 		gdk_threads_add_idle(enable_play_button, NULL);
 
 	playerstatus = idle;
+
+	if (!stoprequested)
+		gdk_threads_add_idle(play_next, NULL);
 
 //printf("exiting read_frames\n");
 	retval_readframes = 0;
@@ -2005,10 +2073,33 @@ gboolean invalidate(gpointer data)
 	return FALSE;
 }
 
+void destroynotify(guchar *pixels, gpointer data)
+{
+//printf("destroy notify\n");
+	free(pixels);
+}
+
+void initPixbuf(int width, int height)
+{
+	int i;
+
+	guchar *imgdata = malloc(width*height*4); // RGBA
+	for(i=0;i<width*height;i++)
+	{
+		((unsigned int *)imgdata)[i]=0xFF000000; // ABGR
+	}
+	g_mutex_lock(&pixbufmutex);
+	if (pixbuf)
+		g_object_unref(pixbuf);
+    pixbuf = gdk_pixbuf_new_from_data(imgdata, GDK_COLORSPACE_RGB, TRUE, 8, width, height, width*4, destroynotify, NULL);
+	g_mutex_unlock(&pixbufmutex);
+}
+
 void* videoPlayFromQueue(void *arg)
 {
 	struct videoqueue *p;
 	UserData *userData;
+	long diff;
 
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
 	int ctype_old;
@@ -2029,17 +2120,16 @@ void* videoPlayFromQueue(void *arg)
 	userData = p_state->user_data;
     setSize(width/4, height*3/2);
 
-	g_mutex_lock(&pixbufmutex);
-	pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, p_state->screen_width, p_state->screen_height);
+	initPixbuf(p_state->screen_width, p_state->screen_height);
 	userData->outrgb = (char*)gdk_pixbuf_get_pixels(pixbuf);
-	begindrawcallback = 1;
-	g_mutex_unlock(&pixbufmutex);
+	//char *imgdata = malloc(p_state->screen_width*p_state->screen_height*4);
 
 	GLfloat picSize[2] = { (GLfloat)width, (GLfloat)height*3/2 };
 	glUniform2fv(userData->sizeLoc, 1, picSize);
 	GLfloat yuv2rgbmatrix[9] = { 1.0, 0.0, 1.5958, 1.0, -0.3917, -0.8129, 1.0, 2.017, 0.0 };
 	glUniformMatrix3fv(userData->cmatrixLoc, 1, FALSE, yuv2rgbmatrix);
 
+	diff = 0;
 	while (1)
 	{
 		if ((p = vq_remove(&vq)) == NULL)
@@ -2047,73 +2137,88 @@ void* videoPlayFromQueue(void *arg)
 
 		//printf("Frame %d, width=%d, height=%d\n", p->label, width, height);
 		//usleep(33670); // 29.7 frames per second
+		//printf("Video %d\n", gettid());
+		now_playing_frame = p->label;
+
+		if (diff > 0)
+		{
+		diff-=frametime;
+		if (diff<0)
+		{
+			usleep(0-diff);
+			diff = 0;
+		}
+//printf("skip %d\n", p->label);
+
+		free(p->rgba);
+//printf("free rgba\n");
+		av_packet_unref(p->packet);
+//printf("av_packet_unref\n");
+		free(p);
+//printf("free vq\n");
+
+		continue;
+		}
 
 get_first_time_microseconds();
-			texImage2D(p->rgba, width/4, height*3/2);
+		texImage2D(p->rgba, width/4, height*3/2);
 diff3=get_next_time_microseconds();
 //printf("%lu usec glTexImage2D\n", diff3);
-			if (!(now_playing_frame%10))
-				gdk_threads_add_idle(setLevel3, &diff3);
 
 get_first_time_microseconds();
-			redraw_scene(p_state);
-			glFinish();
+		redraw_scene(p_state);
+		glFinish();
 diff4=get_next_time_microseconds();
 //printf("%lu usec redraw\n", diff4);
-			if (!(now_playing_frame%10))
-				gdk_threads_add_idle(setLevel4, &diff4);
 
 get_first_time_microseconds();
-			g_mutex_lock(&pixbufmutex);
-			glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
-			g_mutex_unlock(&pixbufmutex);
+
+		g_mutex_lock(&pixbufmutex);
+		glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
+		g_mutex_unlock(&pixbufmutex);
+
+/*
+		glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, imgdata);
+		g_mutex_lock(&pixbufmutex);
+		memcpy(userData->outrgb, imgdata, p_state->screen_width*p_state->screen_height*4);
+		g_mutex_unlock(&pixbufmutex);
+*/
+
 diff5=get_next_time_microseconds();
 //printf("%lu usec glReadPixels\n", diff5);
-			if (!(now_playing_frame%10))
-				gdk_threads_add_idle(setLevel5, &diff5);
 
-			//checkNoGLES2Error();
+		//checkNoGLES2Error();
+
+		if (!(now_playing_frame%10))
+		{
+			gdk_threads_add_idle(setLevel3, &diff3);
+			gdk_threads_add_idle(setLevel4, &diff4);
+			gdk_threads_add_idle(setLevel5, &diff5);
+			gdk_threads_add_idle(update_hscale, NULL);
+		}
+
+		diff = diff3 + diff4 + diff5;
+		//printf("%5lu usec frame, frametime %5d\n", diff, frametime);
+		diff -= frametime;
+		if (diff<0)
+		{
 			gdk_threads_add_idle(invalidate, NULL);
-
-			now_playing_frame = p->label;
-			if (!(now_playing_frame%10))
-				gdk_threads_add_idle(update_hscale, NULL);
-
-//long diff=get_next_time_microseconds();
-long diff = diff3 + diff4 + diff5;
-//printf("%lu usec frame\n", diff);
-if (frametime>diff)
-{
-	diff = frametime - diff;
-//printf("%lu\n", diff);
-	usleep(diff);
-}
-
+			usleep(0-diff);
+			diff = 0;
+		}
 /*
 		gdk_cairo_draw_from_gl() // since 3.16
 */
-			free(p->rgba);
+		free(p->rgba);
 //printf("free rgba\n");
-			av_packet_unref(p->packet);
+		av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
-			free(p);
+		free(p);
 //printf("free vq\n");
-
-		//long diff;
-		//diff=get_next_time_microseconds();
-		//printf("%lu usec\n", diff);
 	}
-
-/*
-	g_mutex_lock(&pixbufmutex);
-	begindrawcallback = 0;
-	g_mutex_unlock(&pixbufmutex);
-*/
-
-	//g_object_unref(pixbuf);
-	//g_clear_object(&pixbuf);
-
+	//free(imgdata);
 	exit_func();
+
 //printf("exiting videoPlayFromQueue\n");
 	retval_video = 0;
 	pthread_exit((void*)&retval_video);
@@ -2160,6 +2265,13 @@ void create_thread_framereader()
  */
 static void realize_cb (GtkWidget *widget, gpointer data)
 {
+	GtkAllocation *alloc = g_new(GtkAllocation, 1);
+	gtk_widget_get_allocation(hscale, alloc);
+	int scaleheight = alloc->height;
+	g_free(alloc);
+	//printf("Scale height %d\n", scaleheight);
+	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
+
     //pthread_join(tid[0], NULL);
     //pthread_join(tid[1], NULL);
     //pthread_join(tid[2], NULL);
@@ -2195,22 +2307,36 @@ static void destroy(GtkWidget *widget, gpointer data)
  */
 static gboolean draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data)
 {
+//printf("Draw %d\n", gettid());
+	get_first_time_microseconds_1();
+
 	g_mutex_lock(&pixbufmutex);
-	if (begindrawcallback)
-	{
-get_first_time_microseconds_1();
-		cr = gdk_cairo_create (gtk_widget_get_window(dwgarea));
-		gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
-		cairo_paint(cr);
-		cairo_destroy(cr);
-diff6=get_next_time_microseconds_1();
-//printf("%lu usec cairo draw\n", diff);
-		if (!(now_playing_frame%10))
-			gdk_threads_add_idle(setLevel6, &diff6);
-	}
+	//cr = gdk_cairo_create (gtk_widget_get_window(dwgarea));
+	gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
+	cairo_paint(cr);
+	//cairo_destroy(cr);
 	g_mutex_unlock(&pixbufmutex);
 
-    return TRUE;
+	diff6=get_next_time_microseconds_1();
+//printf("%lu usec cairo draw\n", diff);
+	if (!(now_playing_frame%10))
+		gdk_threads_add_idle(setLevel6, &diff6);
+
+    return FALSE;
+}
+
+static void push_message(GtkWidget *widget, gint cid, char *msg)
+{
+  gchar *buff;
+
+  buff = g_strdup_printf("%s", msg);
+  gtk_statusbar_push(GTK_STATUSBAR(statusbar), cid, buff);
+  g_free (buff);
+}
+
+static void pop_message(GtkWidget *widget, gint cid)
+{
+  gtk_statusbar_pop(GTK_STATUSBAR(widget), cid);
 }
 
 static void button1_clicked(GtkWidget *button, gpointer data)
@@ -2241,8 +2367,6 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 		return;
 	}
 
-	playerWidth = 800;
-	//playerWidth = 1280;
 	playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
 	gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
 //printf("gtk_widget_set_size\n");
@@ -2254,9 +2378,15 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	playerstatus = playing;
 	create_thread_framereader();
 //printf("create_thread_framereader\n");
-	// Audio and video player threads
 	create_threads_av();
 //printf("create_threads_av\n");
+
+	pop_message(statusbar, context_id);
+	char msg[1024];
+	sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/"));
+	push_message(statusbar, context_id, msg);
+	
+	gtk_window_resize(GTK_WINDOW(window), 100, 100);
 }
 
 static void button2_clicked(GtkWidget *button, gpointer data)
@@ -2324,7 +2454,7 @@ static GtkTreeModel* create_and_fill_model(int mode)
 			else
 			{
 //printf("Opened database successfully\n");
-				sql = "SELECT * FROM mediafiles;";
+				sql = "SELECT * FROM mediafiles order by id;";
 				if((rc = sqlite3_exec(db, sql, select_callback, 0, &err_msg)) != SQLITE_OK)
 				{
 					printf("Failed to select data, %s\n", err_msg);
@@ -2375,22 +2505,26 @@ void listview_onRowActivated (GtkTreeView *treeview, GtkTreePath *path, GtkTreeV
 {
 	GtkTreeModel *model;
 	GtkTreeIter iter;
+	gchar *s;
 
 	//g_print("double-clicked\n");
 	model = gtk_tree_view_get_model(treeview);
 	if (gtk_tree_model_get_iter(model, &iter, path))
 	{
+		s=gtk_tree_path_to_string(path);
+		printf("%s\n",s);
+		g_free(s);
 		if (!(playerstatus == idle))
 		{
 			button2_clicked(button2, NULL);
 			while(!(playerstatus == idle))
 				usleep(100000); // 0.1s
 		}
+		if (now_playing) g_free(now_playing);
 		gtk_tree_model_get(model, &iter, COL_FILEPATH, &now_playing, -1);
 		//g_print ("Double-clicked path %s\n", now_playing);
 
 		button1_clicked(button1, NULL);
-		//g_free(name);
 	}
 }
 
@@ -2420,13 +2554,15 @@ static void button4_clicked(GtkWidget *button, gpointer data)
 	gtk_tree_view_set_model(GTK_TREE_VIEW(listview), model); /* Re-attach model to view */
 }
 
-void listdir(const char *name, sqlite3 *db)
+void listdir(const char *name, sqlite3 *db, int *id)
 {
 	char *err_msg = NULL;
 	char sql[1024];
 	int rc;
-	int id = 0;
 	char sid[10];
+	char path[1024];
+	char *strname;
+	char *strdest;
 
 	DIR *dir;
 	struct dirent *entry;
@@ -2440,32 +2576,42 @@ void listdir(const char *name, sqlite3 *db)
 	{
 		if (entry->d_type == DT_DIR)
 		{
-			char path[1024];
 			int len = snprintf(path, sizeof(path)-1, "%s/%s", name, entry->d_name);
 			path[len] = 0;
 			if ((!strcmp(entry->d_name, ".")) || (!strcmp(entry->d_name, "..")))
 				continue;
 //printf("%*s[%s]\n", level*2, "", entry->d_name);
-			listdir(path, db);
+			listdir(path, db, id);
 		}
 		else
 		{
 //printf("%*s- %s/%s\n", level*2, "", name, entry->d_name);
 				// if entry->d_name ends with .mp4 ...
-				id++;
-				sprintf(sid, "%d", id);
+				if ( (strcmp(strlastpart(entry->d_name, "."), ".mp4"))
+				  && (strcmp(strlastpart(entry->d_name, "."), ".mp3"))
+				   )
+				continue;
+				
+				(*id)++;
+				sprintf(sid, "%d", *id);
 				sql[0] = '\0';
 				strcat(sql, "INSERT INTO mediafiles VALUES(");
 				strcat(sql, sid);
 				strcat(sql, ", '");
 				strcat(sql, name);
 				strcat(sql, "/");
-				strcat(sql, entry->d_name);
+					//strcat(sql, entry->d_name);
+					strname=(char*)malloc(sizeof(entry->d_name)+1);
+					strcpy(strname, entry->d_name);
+					strdest = strreplace(strname, "'", "''");
+					free(strname);
+					strcat(sql, strdest);
+					free(strdest);
 				strcat(sql, "');");
 //printf("%s\n", sql);
 				if((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
 				{
-					printf("Failed to select data, %s\n", err_msg);
+					printf("Failed to insert data, %s\n", err_msg);
 					sqlite3_free(err_msg);
 				}
 				else
@@ -2484,6 +2630,7 @@ static void button5_clicked(GtkWidget *button, gpointer data)
 	sqlite3 *db;
 	char *sql;
 	int rc;
+	int id;
 
 	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
 	{
@@ -2495,14 +2642,15 @@ static void button5_clicked(GtkWidget *button, gpointer data)
 		sql = "DELETE FROM mediafiles;";
 		if((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
 		{
-			printf("Failed to select data, %s\n", err_msg);
+			printf("Failed to delete data, %s\n", err_msg);
 			sqlite3_free(err_msg);
 		}
 		else
 		{
 // success
 		}
-		listdir(catalog_folder, db);
+		id = 0;
+		listdir(catalog_folder, db, &id);
 	}
 	sqlite3_close(db);
 }
@@ -2528,8 +2676,49 @@ static void button6_clicked(GtkWidget *button, gpointer data)
 	gtk_widget_destroy (dialog);
 }
 
+gboolean play_next(gpointer data)
+{
+	GtkTreeModel *model;
+	GtkTreeSelection *selection;
+	GtkTreeIter iter;
+
+	model = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(listview));
+
+	gtk_tree_selection_get_selected(selection, &model, &iter);
+	if (gtk_tree_model_iter_next(model, &iter))
+	{
+		gtk_tree_selection_select_iter(selection, &iter);
+	}
+	else
+	{
+		if (gtk_tree_model_iter_nth_child (model, &iter, NULL, 0))
+		{
+			gtk_tree_selection_select_iter(selection, &iter);
+		}
+		else
+		{
+			printf("no entries\n");
+			return FALSE;
+		}
+	}
+
+	if (now_playing) g_free(now_playing);
+	gtk_tree_model_get(model, &iter, COL_FILEPATH, &now_playing, -1);
+	//g_print("Next %s\n", now_playing);
+
+	button1_clicked(button1, NULL);
+	return FALSE;
+}
+
 int main(int argc, char** argv)
 {
+	playerWidth = 800;
+	playerHeight = playerWidth * 9 / 16;
+
+	int dawidth = playerWidth;
+	int daheight = playerHeight;
+
      /* This is called in all GTK applications. Arguments are parsed
      * from the command line and are returned to the application. */
     gtk_init (&argc, &argv);
@@ -2539,8 +2728,9 @@ int main(int argc, char** argv)
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     /* Sets the border width of the window. */
     gtk_container_set_border_width (GTK_CONTAINER (window), 2);
-
+	gtk_widget_set_size_request(window, 100, 100);
 	gtk_window_set_title(GTK_WINDOW(window), "Video Player");
+	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
 
     /* When the window is given the "delete-event" signal (this is given
      * by the window manager, usually by the "close" option, or on the
@@ -2566,20 +2756,24 @@ int main(int argc, char** argv)
     box1 = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
     //gtk_container_add(GTK_CONTAINER(window), box1);
 
+// pixbuf
+	pixbuf = NULL;
+	initPixbuf(dawidth, daheight);
+
 // drawing area
     dwgarea = gtk_drawing_area_new ();
-    gtk_widget_set_size_request (dwgarea, 800, 450);
+    gtk_widget_set_size_request (dwgarea, dawidth, daheight);
     //gtk_widget_set_size_request (dwgarea, 1280, 720);
     gtk_container_add(GTK_CONTAINER(box1), dwgarea);
 
     // Signals used to handle the backing surface
-    begindrawcallback = 0;
     g_signal_connect (dwgarea, "draw", G_CALLBACK(draw_cb), NULL);
     gtk_widget_set_app_paintable(dwgarea, TRUE);
 
 // horizontal scale
     hadjustment = gtk_adjustment_new(50, 0, 100, 1, 10, 0);
     hscale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, GTK_ADJUSTMENT(hadjustment));
+    gtk_scale_set_digits(GTK_SCALE(hscale), 0);
     //g_signal_connect(hscale, "value-changed", G_CALLBACK(hscale_adjustment), NULL);
     gtk_container_add(GTK_CONTAINER(box1), hscale);
 
@@ -2671,7 +2865,7 @@ int main(int argc, char** argv)
     scrolled_window = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_set_border_width(GTK_CONTAINER(scrolled_window), 10);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window), GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
-    gtk_widget_set_size_request(scrolled_window, 800, 450);
+    gtk_widget_set_size_request(scrolled_window, dawidth, daheight);
     gtk_container_add(GTK_CONTAINER(box2), scrolled_window);
 
     listview = create_view_and_model();
@@ -2702,15 +2896,20 @@ int main(int argc, char** argv)
 // stack switcher
     stack = gtk_stack_new();
     stackswitcher = gtk_stack_switcher_new ();
-    gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER (stackswitcher), GTK_STACK (stack));
-    gtk_container_add (GTK_CONTAINER (playerbox), stackswitcher);
-    gtk_container_add (GTK_CONTAINER (playerbox), stack);
+    gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER(stackswitcher), GTK_STACK(stack));
+    gtk_container_add(GTK_CONTAINER(playerbox), stackswitcher);
+    gtk_container_add(GTK_CONTAINER(playerbox), stack);
 
-    gtk_stack_add_titled (GTK_STACK(stack), box1, "box1", "Player");
-    gtk_stack_add_titled (GTK_STACK(stack), box2, "box2", "Playlist");
-    
+    gtk_stack_add_titled(GTK_STACK(stack), box1, "box1", "Player");
+    gtk_stack_add_titled(GTK_STACK(stack), box2, "box2", "Playlist");
+
+    statusbar = gtk_statusbar_new();
+    gtk_container_add(GTK_CONTAINER(playerbox), statusbar);
+    push_message(statusbar, context_id, "");
+
     gtk_widget_show_all(window);
 //printf("Show window\n");
+
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or
      * mouse event). */
