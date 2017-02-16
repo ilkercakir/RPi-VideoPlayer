@@ -131,6 +131,8 @@ int playerWidth, playerHeight;
 int frametime;
 double frame_rate;
 int now_playing_frame;
+int now_decoding_frame;
+int hscaleupd;
 int64_t videoduration;
 
 long long usecs; // microseconds
@@ -1044,6 +1046,9 @@ void aq_destroy(pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
 	pthread_cond_destroy(ch);
 }
 
+pthread_mutex_t seekmutex; // = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t framemutex; // = PTHREAD_MUTEX_INITIALIZER;
+
 snd_pcm_t *handle;
 signed short *samples;
 snd_pcm_channel_area_t *areas;
@@ -1244,6 +1249,8 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 			}
 		}
 */
+		//pthread_mutex_lock(&seekmutex);
+		//pthread_mutex_unlock(&seekmutex);
 	}
 	return(0);
 }
@@ -1697,7 +1704,8 @@ void list_uniforms_of_program()
 
 gboolean update_hscale(gpointer data)
 {
-	gtk_adjustment_set_value(hadjustment, now_playing_frame);
+	if (hscaleupd)
+		gtk_adjustment_set_value(hadjustment, now_playing_frame);
 	return FALSE;
 }
 
@@ -1827,8 +1835,8 @@ int open_file(char * filename)
 	AVStream *st = pFormatCtx->streams[videoStream];
     frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
 //    printf("Frame rate = %2.2f\n", frame_rate);
-	frametime = 1000000 / frame_rate - 2000; // usec
-//	printf("frametime-2000 = %d usec\n", frametime);
+	frametime = 1000000 / frame_rate; // usec
+//	printf("frametime = %d usec\n", frametime);
 
 	//printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
 
@@ -1954,7 +1962,8 @@ static gpointer read_frames(gpointer args)
     packet->data = NULL;
     packet->size = 0;
 
-    int i=0, j=0;
+	now_decoding_frame = 0;
+    int fnum, i=0, j=0;
 
 	char *rgba;
 
@@ -1986,7 +1995,10 @@ diff2=get_next_time_microseconds_2();
 				memcpy(&rgba[width*height], pFrame->data[1], width*height/4); //u
 				memcpy(&rgba[width*height*5/4], pFrame->data[2], width*height/4); //v
 
-				vq_add(&vq, packet, rgba, j++);
+				pthread_mutex_lock(&framemutex);
+				fnum = now_decoding_frame++;
+				pthread_mutex_unlock(&framemutex);
+				vq_add(&vq, packet, rgba, fnum);
 			}
 		}
 		else if (packet->stream_index==audioStream)
@@ -2000,6 +2012,9 @@ diff2=get_next_time_microseconds_2();
 		packet->data = NULL;
 		packet->size = 0;
 get_first_time_microseconds_2();
+
+		pthread_mutex_lock(&seekmutex);
+		pthread_mutex_unlock(&seekmutex);
 	}
 	//avcodec_close(pCodec);
 	//avcodec_close(pCodecA);
@@ -2030,6 +2045,9 @@ get_first_time_microseconds_2();
 
 	aq_destroy(&aqmutex, &aqlowcond, &aqhighcond);
 	vq_destroy(&vqmutex, &vqlowcond, &vqhighcond);
+
+	pthread_mutex_destroy(&seekmutex);
+	pthread_mutex_destroy(&framemutex);
 
 	close_sound();
 
@@ -2142,22 +2160,22 @@ void* videoPlayFromQueue(void *arg)
 
 		if (diff > 0)
 		{
-		diff-=frametime;
-		if (diff<0)
-		{
-			usleep(0-diff);
-			diff = 0;
-		}
+			diff-=frametime;
+			if (diff<0)
+			{
+				usleep(0-diff);
+				diff = 0;
+			}
 //printf("skip %d\n", p->label);
 
-		free(p->rgba);
+			free(p->rgba);
 //printf("free rgba\n");
-		av_packet_unref(p->packet);
+			av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
-		free(p);
+			free(p);
 //printf("free vq\n");
 
-		continue;
+			continue;
 		}
 
 get_first_time_microseconds();
@@ -2197,15 +2215,6 @@ diff5=get_next_time_microseconds();
 			gdk_threads_add_idle(update_hscale, NULL);
 		}
 
-		diff = diff3 + diff4 + diff5;
-		//printf("%5lu usec frame, frametime %5d\n", diff, frametime);
-		diff -= frametime;
-		if (diff<0)
-		{
-			gdk_threads_add_idle(invalidate, NULL);
-			usleep(0-diff);
-			diff = 0;
-		}
 /*
 		gdk_cairo_draw_from_gl() // since 3.16
 */
@@ -2215,6 +2224,19 @@ diff5=get_next_time_microseconds();
 //printf("av_packet_unref\n");
 		free(p);
 //printf("free vq\n");
+
+		diff = diff3 + diff4 + diff5 + 1000;
+		//printf("%5lu usec frame, frametime %5d\n", diff, frametime);
+		diff -= frametime;
+		if (diff<0)
+		{
+			gdk_threads_add_idle(invalidate, NULL);
+			usleep(0-diff);
+			diff = 0;
+		}
+		//pthread_mutex_lock(&seekmutex);
+		//pthread_mutex_unlock(&seekmutex);
+
 	}
 	//free(imgdata);
 	exit_func();
@@ -2277,9 +2299,7 @@ static void realize_cb (GtkWidget *widget, gpointer data)
     //pthread_join(tid[2], NULL);
 }
 
-static gboolean delete_event( GtkWidget *widget,
-                              GdkEvent  *event,
-                              gpointer   data )
+static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
 {
     /* If you return FALSE in the "delete-event" signal handler,
      * GTK will emit the "destroy" signal. Returning TRUE means
@@ -2288,9 +2308,6 @@ static gboolean delete_event( GtkWidget *widget,
      * type dialogs. */
 
 //g_print ("delete event occurred\n");
-
-    /* Change TRUE to FALSE and the main window will be destroyed with
-     * a "delete-event". */
     return FALSE;
 }
 
@@ -2341,6 +2358,8 @@ static void pop_message(GtkWidget *widget, gint cid)
 
 static void button1_clicked(GtkWidget *button, gpointer data)
 {
+	int ret;
+
 //g_print("Button 1 clicked\n");
 	gtk_widget_set_sensitive(button1, FALSE);
 	gtk_widget_set_sensitive(button2, TRUE);
@@ -2355,8 +2374,14 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	aq_init(&aq, &aqmutex, &aqlowcond, &aqhighcond);
 //printf("aq_init\n");
 
+	if ((ret=pthread_mutex_init(&seekmutex, NULL))!=0 )
+		printf("Seek mutex init failed, %d\n", ret);
+
+	if ((ret=pthread_mutex_init(&framemutex, NULL))!=0 )
+		printf("Frame mutex init failed, %d\n", ret);
+
 	resetLevels();
-	int ret = open_file(now_playing);
+	ret = open_file(now_playing);
 	if (ret == 0)
 	{
 //printf("opened %s\n", now_playing);
@@ -2374,6 +2399,7 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	gtk_adjustment_set_upper(hadjustment, videoduration);
 	gtk_adjustment_set_value(hadjustment, 0);
 
+	hscaleupd = TRUE;
 	stoprequested = 0;
 	playerstatus = playing;
 	create_thread_framereader();
@@ -2512,7 +2538,7 @@ void listview_onRowActivated (GtkTreeView *treeview, GtkTreePath *path, GtkTreeV
 	if (gtk_tree_model_get_iter(model, &iter, path))
 	{
 		s=gtk_tree_path_to_string(path);
-		printf("%s\n",s);
+		//printf("%s\n",s);
 		g_free(s);
 		if (!(playerstatus == idle))
 		{
@@ -2711,6 +2737,76 @@ gboolean play_next(gpointer data)
 	return FALSE;
 }
 
+/*
+void AV_seek(AV * av, size_t frame)
+{
+    int frame_delta = frame - av->frame_id;
+    if (frame_delta < 0 || frame_delta > 5)
+        av_seek_frame(av->fmt_ctx, av->video_stream_id,
+                frame, AVSEEK_FLAG_BACKWARD);
+    while (av->frame_id != frame)
+        AV_read_frame(av);
+}
+
+void AV_read_frame(AV * av)
+{
+    AVPacket packet;
+    int frame_done;
+
+    while (av_read_frame(av->fmt_ctx, &packet) >= 0) {
+        if (packet.stream_index == av->video_stream_id) {
+            avcodec_decode_video2(av->codec_ctx, av->frame, &frame_done, &packet);
+            if (frame_done) {
+                ...
+                av->frame_id = packet.dts;
+                av_free_packet(&packet);
+                return;
+            }
+        }
+        av_free_packet(&packet);
+    }
+}
+*/
+
+gboolean scale_pressed(GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+	pthread_mutex_lock(&seekmutex);
+	hscaleupd = FALSE;
+	return FALSE;
+}
+
+gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+	double value = gtk_range_get_value(GTK_RANGE(widget));
+//printf("Released value: %f\n", value);
+
+	AVStream *st = pFormatCtx->streams[videoStream];
+	double seektime = value / frame_rate; // seconds
+//printf("Seek time %5.2f\n", seektime);
+	int flgs = AVSEEK_FLAG_ANY;
+	int seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
+	if (av_seek_frame(pFormatCtx, videoStream, seek_ts, flgs) < 0)
+	{
+		printf("Failed to seek Video\n");
+	}
+	else
+	{
+		avcodec_flush_buffers(pCodecCtx);
+		avcodec_flush_buffers(pCodecCtxA);
+
+		vq_drain(&vq);
+		aq_drain(&aq);
+	}
+
+	pthread_mutex_lock(&framemutex);
+	now_decoding_frame = (int)value;
+	pthread_mutex_unlock(&framemutex);
+
+	hscaleupd = TRUE;
+	pthread_mutex_unlock(&seekmutex);
+	return FALSE;
+}
+
 int main(int argc, char** argv)
 {
 	playerWidth = 800;
@@ -2775,6 +2871,8 @@ int main(int argc, char** argv)
     hscale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, GTK_ADJUSTMENT(hadjustment));
     gtk_scale_set_digits(GTK_SCALE(hscale), 0);
     //g_signal_connect(hscale, "value-changed", G_CALLBACK(hscale_adjustment), NULL);
+    g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(box1), hscale);
 
 // horizontal box
