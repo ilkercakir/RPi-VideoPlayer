@@ -218,10 +218,14 @@ void init_ogl(CUBE_STATE_T *state)
     success = graphics_get_display_size(0 /* LCD */, &p_state->screen_width, &p_state->screen_height);
     assert( success >= 0 );
 
-    printf("Screen size = %d * %d\n", p_state->screen_width, p_state->screen_height);
+    //printf("Screen size = %d * %d\n", p_state->screen_width, p_state->screen_height);
 
-    p_state->screen_width = pCodecCtx->width;
-    p_state->screen_height = pCodecCtx->height;
+    //p_state->screen_width = pCodecCtx->width;
+    //p_state->screen_height = pCodecCtx->height;
+    p_state->screen_width = 640;
+    p_state->screen_height = 320;
+
+	printf("Screen size = %d * %d\n", pCodecCtx->width, pCodecCtx->height);
 
     dst_rect.x = 0;
     dst_rect.y = 0;
