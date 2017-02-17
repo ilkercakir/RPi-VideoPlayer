@@ -1759,6 +1759,7 @@ int open_file(char * filename)
     AVDictionary *optionsDictA = NULL;
 
     av_register_all();
+    avformat_network_init();
 
 	if(avformat_open_input(&pFormatCtx, filename, NULL, NULL)!=0)
 	{
@@ -1789,7 +1790,42 @@ int open_file(char * filename)
 	if (videoStream==-1)
 	{
 		printf("No video stream found\n");
+		videoduration = 0;
 //		return -1; // Didn't find a video stream
+	}
+	else
+	{
+		// Get a pointer to the codec context for the video stream
+		pCodecCtx=pFormatCtx->streams[videoStream]->codec;
+
+		// Find the decoder for the video stream
+		pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
+		if(pCodec==NULL)
+		{
+			printf("Unsupported video codec\n");
+			return -1; // Codec not found
+		}
+
+		pCodecCtx->thread_count = 2;
+		// Open codec
+		if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
+		{
+			printf("Video avcodec_open2()\n");
+			return -1; // Could not open video codec
+		}
+
+		//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
+/*
+		sws_context = sws_getCachedContext(sws_context, frame->width, frame->height, AV_PIX_FMT_YUV420P, frame2->width, frame2->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
+		sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
+*/
+		AVStream *st = pFormatCtx->streams[videoStream];
+		frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
+//printf("Frame rate = %2.2f\n", frame_rate);
+		frametime = 1000000 / frame_rate; // usec
+//printf("frametime = %d usec\n", frametime);
+//printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
+		videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate;
 	}
 
 	audioStream = -1;
@@ -1806,72 +1842,39 @@ int open_file(char * filename)
 		printf("No audio stream found\n");
 //		return -1; // Didn't find an audio stream
 	}
-
-	// Get a pointer to the codec context for the video stream
-	pCodecCtx=pFormatCtx->streams[videoStream]->codec;
-
-	// Find the decoder for the video stream
-	pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
-	if(pCodec==NULL)
+	else
 	{
-		printf("Unsupported video codec\n");
-		return -1; // Codec not found
+		// Get a pointer to the codec context for the audio stream
+		pCodecCtxA=pFormatCtx->streams[audioStream]->codec;
+
+		// Find the decoder for the audio stream
+		pCodecA=avcodec_find_decoder(pCodecCtxA->codec_id);
+
+		if(pCodecA==NULL)
+		{
+			printf("Unsupported audio codec!\n");
+			return -1; // Codec not found
+		}
+
+		// Open codec
+		if(avcodec_open2(pCodecCtxA, pCodecA, &optionsDictA)<0)
+		{
+			printf("Audio avcodec_open2()\n");
+			return -1; // Could not open audio codec
+		}
+
+		// Set up SWR context once you've got codec information
+		swr = swr_alloc();
+		av_opt_set_int(swr, "in_channel_layout",  pCodecCtxA->channel_layout, 0);
+		av_opt_set_int(swr, "out_channel_layout", pCodecCtxA->channel_layout,  0);
+		av_opt_set_int(swr, "in_sample_rate",     pCodecCtxA->sample_rate, 0);
+		av_opt_set_int(swr, "out_sample_rate",    pCodecCtxA->sample_rate, 0);
+		//av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
+		av_opt_set_sample_fmt(swr, "in_sample_fmt",  pCodecCtxA->sample_fmt, 0);
+
+		av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
+		swr_init(swr);
 	}
-  
-    pCodecCtx->thread_count = 2;
-    // Open codec
-	if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
-	{
-		printf("Video avcodec_open2()\n");
-		return -1; // Could not open video codec
-	}
-
-	//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
-/*
-    sws_context = sws_getCachedContext(sws_context, frame->width, frame->height, AV_PIX_FMT_YUV420P, frame2->width, frame2->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
-    sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
-*/
-
-	AVStream *st = pFormatCtx->streams[videoStream];
-    frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
-//    printf("Frame rate = %2.2f\n", frame_rate);
-	frametime = 1000000 / frame_rate; // usec
-//	printf("frametime = %d usec\n", frametime);
-
-	//printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
-
-	videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate;
-
-	// Get a pointer to the codec context for the audio stream
-    pCodecCtxA=pFormatCtx->streams[audioStream]->codec;
-
-	// Find the decoder for the audio stream
-    pCodecA=avcodec_find_decoder(pCodecCtxA->codec_id);
-
-	if(pCodecA==NULL)
-	{
-		printf("Unsupported audio codec!\n");
-		return -1; // Codec not found
-	}
-
-    // Open codec
-    if(avcodec_open2(pCodecCtxA, pCodecA, &optionsDictA)<0)
-    {
-		printf("Audio avcodec_open2()\n");
-		return -1; // Could not open audio codec
-    }
-
-	// Set up SWR context once you've got codec information
-	swr = swr_alloc();
-	av_opt_set_int(swr, "in_channel_layout",  pCodecCtxA->channel_layout, 0);
-	av_opt_set_int(swr, "out_channel_layout", pCodecCtxA->channel_layout,  0);
-	av_opt_set_int(swr, "in_sample_rate",     pCodecCtxA->sample_rate, 0);
-	av_opt_set_int(swr, "out_sample_rate",    pCodecCtxA->sample_rate, 0);
-	//av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
-	av_opt_set_sample_fmt(swr, "in_sample_fmt",  pCodecCtxA->sample_fmt, 0);
-	
-	av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
-	swr_init(swr);
 
 	//initialize ALSA lib
 	init_sound(pCodecCtxA);
@@ -1963,7 +1966,7 @@ static gpointer read_frames(gpointer args)
     packet->size = 0;
 
 	now_decoding_frame = 0;
-    int fnum, i=0, j=0;
+    int fnum, i=0;
 
 	char *rgba;
 
@@ -1978,7 +1981,7 @@ diff1=get_next_time_microseconds_2();
 
 		if (packet->stream_index==videoStream) 
 		{
-//printf("videoStream %d\n", j); printf("vqlength %d\n", vqLength);
+//printf("videoStream %d\n", now_decoding_frame); printf("vqlength %d\n", vqLength);
 get_first_time_microseconds_2();
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
 diff2=get_next_time_microseconds_2();
@@ -1999,12 +2002,18 @@ diff2=get_next_time_microseconds_2();
 				fnum = now_decoding_frame++;
 				pthread_mutex_unlock(&framemutex);
 				vq_add(&vq, packet, rgba, fnum);
+
+				pthread_mutex_lock(&seekmutex);
+				pthread_mutex_unlock(&seekmutex);
 			}
 		}
 		else if (packet->stream_index==audioStream)
 		{
 //printf("audioStream %d\n", i); printf("aqlength %d\n", aqLength);
 			aq_add(&aq, packet, i++);
+
+			pthread_mutex_lock(&seekmutex);
+			pthread_mutex_unlock(&seekmutex);
 		}
 		packet=av_malloc(sizeof(AVPacket));
 //printf("AVPacket av_malloc %d\n", sizeof(AVPacket));
@@ -2013,8 +2022,8 @@ diff2=get_next_time_microseconds_2();
 		packet->size = 0;
 get_first_time_microseconds_2();
 
-		pthread_mutex_lock(&seekmutex);
-		pthread_mutex_unlock(&seekmutex);
+		//pthread_mutex_lock(&seekmutex);
+		//pthread_mutex_unlock(&seekmutex);
 	}
 	//avcodec_close(pCodec);
 	//avcodec_close(pCodecA);
@@ -2026,6 +2035,7 @@ get_first_time_microseconds_2();
 //printf("av_packet_unref\n");
 
 	avformat_close_input(&pFormatCtx);
+	avformat_network_deinit();
 
 	pthread_mutex_lock(&vqmutex);
 	pthread_mutex_lock(&aqmutex);
@@ -2038,9 +2048,11 @@ get_first_time_microseconds_2();
 //printf("aq\n");
 	aq_drain(&aq);
 
-	i=pthread_join(tid[0], NULL);
+	if (audioStream!=-1)
+		i=pthread_join(tid[0], NULL);
 //printf("join 0 %d\n", i);
-	i=pthread_join(tid[1], NULL);
+	if (videoStream!=-1)
+		i=pthread_join(tid[1], NULL);
 //printf("join 1 %d\n", i);
 
 	aq_destroy(&aqmutex, &aqlowcond, &aqhighcond);
@@ -2250,23 +2262,29 @@ void create_threads_av()
 {
 	int err;
 
-    err = pthread_create(&(tid[0]), NULL, &audioPlayFromQueue, NULL);
-    if (err)
-    {}
-    CPU_ZERO(&(cpu[1]));
-    CPU_SET(1, &(cpu[1]));
-    err = pthread_setaffinity_np(tid[0], sizeof(cpu_set_t), &(cpu[1]));
-    if (err)
-    {}
+	if (audioStream!=-1)
+	{
+		err = pthread_create(&(tid[0]), NULL, &audioPlayFromQueue, NULL);
+		if (err)
+		{}
+		CPU_ZERO(&(cpu[1]));
+		CPU_SET(1, &(cpu[1]));
+		err = pthread_setaffinity_np(tid[0], sizeof(cpu_set_t), &(cpu[1]));
+		if (err)
+		{}
+	}
 
-    err = pthread_create(&(tid[1]), NULL, &videoPlayFromQueue, NULL);
-    if (err)
-    {}
-    CPU_ZERO(&(cpu[2]));
-    CPU_SET(2, &(cpu[2]));
-    err = pthread_setaffinity_np(tid[1], sizeof(cpu_set_t), &(cpu[2]));
-    if (err)
-    {}
+	if (videoStream!=-1)
+	{
+		err = pthread_create(&(tid[1]), NULL, &videoPlayFromQueue, NULL);
+		if (err)
+		{}
+		CPU_ZERO(&(cpu[2]));
+		CPU_SET(2, &(cpu[2]));
+		err = pthread_setaffinity_np(tid[1], sizeof(cpu_set_t), &(cpu[2]));
+		if (err)
+		{}
+	}
 }
 
 void create_thread_framereader()
@@ -2285,7 +2303,7 @@ void create_thread_framereader()
 
 /* Called when the windows are realized
  */
-static void realize_cb (GtkWidget *widget, gpointer data)
+static void realize_cb(GtkWidget *widget, gpointer data)
 {
 	GtkAllocation *alloc = g_new(GtkAllocation, 1);
 	gtk_widget_get_allocation(hscale, alloc);
@@ -2293,10 +2311,6 @@ static void realize_cb (GtkWidget *widget, gpointer data)
 	g_free(alloc);
 	//printf("Scale height %d\n", scaleheight);
 	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
-
-    //pthread_join(tid[0], NULL);
-    //pthread_join(tid[1], NULL);
-    //pthread_join(tid[2], NULL);
 }
 
 static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
@@ -2392,9 +2406,12 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 		return;
 	}
 
-	playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
-	gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
+	if (videoStream!=-1)
+	{
+		playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
+		gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
 //printf("gtk_widget_set_size\n");
+	}
 
 	gtk_adjustment_set_upper(hadjustment, videoduration);
 	gtk_adjustment_set_value(hadjustment, 0);
@@ -2409,10 +2426,14 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 
 	pop_message(statusbar, context_id);
 	char msg[1024];
-	sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/"));
+	if (videoStream!=-1)
+		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/"));
+	else
+		sprintf(msg, "%s", strlastpart(now_playing, "/"));
 	push_message(statusbar, context_id, msg);
-	
+
 	gtk_window_resize(GTK_WINDOW(window), 100, 100);
+	realize_cb(window, data);
 }
 
 static void button2_clicked(GtkWidget *button, gpointer data)
@@ -2770,8 +2791,11 @@ void AV_read_frame(AV * av)
 
 gboolean scale_pressed(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-	pthread_mutex_lock(&seekmutex);
-	hscaleupd = FALSE;
+	if (playerstatus==playing)
+	{
+		pthread_mutex_lock(&seekmutex);
+		hscaleupd = FALSE;
+	}
 	return FALSE;
 }
 
@@ -2780,30 +2804,36 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 	double value = gtk_range_get_value(GTK_RANGE(widget));
 //printf("Released value: %f\n", value);
 
-	AVStream *st = pFormatCtx->streams[videoStream];
-	double seektime = value / frame_rate; // seconds
+	if (playerstatus==playing)
+	{
+		if (videoStream!=-1)
+		{
+			AVStream *st = pFormatCtx->streams[videoStream];
+			double seektime = value / frame_rate; // seconds
 //printf("Seek time %5.2f\n", seektime);
-	int flgs = AVSEEK_FLAG_ANY;
-	int seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
-	if (av_seek_frame(pFormatCtx, videoStream, seek_ts, flgs) < 0)
-	{
-		printf("Failed to seek Video\n");
+			int flgs = AVSEEK_FLAG_ANY;
+			int seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
+			if (av_seek_frame(pFormatCtx, videoStream, seek_ts, flgs) < 0)
+			{
+				printf("Failed to seek Video\n");
+			}
+			else
+			{
+				avcodec_flush_buffers(pCodecCtx);
+				avcodec_flush_buffers(pCodecCtxA);
+
+				vq_drain(&vq);
+				aq_drain(&aq);
+			}
+
+			pthread_mutex_lock(&framemutex);
+			now_decoding_frame = (int)value;
+			pthread_mutex_unlock(&framemutex);
+		}
+
+		hscaleupd = TRUE;
+		pthread_mutex_unlock(&seekmutex);
 	}
-	else
-	{
-		avcodec_flush_buffers(pCodecCtx);
-		avcodec_flush_buffers(pCodecCtxA);
-
-		vq_drain(&vq);
-		aq_drain(&aq);
-	}
-
-	pthread_mutex_lock(&framemutex);
-	now_decoding_frame = (int)value;
-	pthread_mutex_unlock(&framemutex);
-
-	hscaleupd = TRUE;
-	pthread_mutex_unlock(&seekmutex);
 	return FALSE;
 }
 
