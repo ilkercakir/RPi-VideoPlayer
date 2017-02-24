@@ -25,7 +25,6 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-GtkWidget *image;
 GtkWidget *window;
 GdkPixbuf *pixbuf;
 
@@ -222,8 +221,8 @@ void init_ogl(CUBE_STATE_T *state)
 
     //p_state->screen_width = pCodecCtx->width;
     //p_state->screen_height = pCodecCtx->height;
-    p_state->screen_width = 640;
-    p_state->screen_height = 320;
+    p_state->screen_width = 1920;
+    p_state->screen_height = 1080;
 
 	printf("Screen size = %d * %d\n", pCodecCtx->width, pCodecCtx->height);
 
@@ -603,23 +602,6 @@ void redraw_scene(CUBE_STATE_T *state)
    eglSwapBuffers(p_state->display, p_state->surface);
 }
 
-GMutex mutex_gtkimage;
-
-gboolean update_frame_gtk(gpointer data)
-{
-	g_mutex_lock(&mutex_gtkimage);
-	gtk_image_set_from_pixbuf((GtkImage*) image, pixbuf);
-	g_mutex_unlock(&mutex_gtkimage);
-	return(G_SOURCE_REMOVE);
-}
-
-/*
-static void pixmap_destroy_notify(guchar *pixels, gpointer data)
-{
-    //printf("Destroy pixmap - not sure how\n");
-}
-*/
-
 // Audio
 struct audioqueue
 {
@@ -632,7 +614,7 @@ struct audioqueue
 };
 struct audioqueue *aq;
 int aqLength;
-const int aqMaxLength = 50;
+const int aqMaxLength = 20;
 pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -817,6 +799,7 @@ snd_pcm_t *handle;
 signed short *samples;
 snd_pcm_channel_area_t *areas;
 snd_output_t *output = NULL;
+//char *device = "plughw:0,0";	// playback device
 char *device = "plughw:0,0";	// playback device
 unsigned int rate = 44100;		// stream rate
 snd_pcm_format_t format = SND_PCM_FORMAT_S16;	// sample format
@@ -900,7 +883,8 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	if (p->dst_data)
 	{
 	//printf("writing %d\n", dst_bufsize);
-		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
+		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
+		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
 	//printf("snd_pcm_writei err:%d\n", err);
 		av_freep(&(p->dst_data[0]));
 //printf("av_freep dst_data0\n");
@@ -1244,7 +1228,7 @@ struct videoqueue
 };
 struct videoqueue *vq;
 int vqLength;
-const int vqMaxLength = 50;
+const int vqMaxLength = 15;
 pthread_mutex_t vqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t vqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t vqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1414,6 +1398,7 @@ int open_file(char * filename)
     AVDictionary *optionsDictA = NULL;
 
     av_register_all();
+    avformat_network_init();
 
 	if(avformat_open_input(&pFormatCtx, filename, NULL, NULL)!=0)
 		return -1; // Couldn't open file
@@ -1461,7 +1446,7 @@ int open_file(char * filename)
 		return -1; // Codec not found
 	}
   
-    pCodecCtx->thread_count = 2;
+    pCodecCtx->thread_count = 3;
     // Open codec
 	if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		return -1; // Could not open video codec
@@ -1475,7 +1460,7 @@ int open_file(char * filename)
 	AVStream *st = pFormatCtx->streams[videoStream];
     double frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
 //    printf("Frame rate = %2.2f\n", frame_rate);
-	frametime = 1000000 / frame_rate - 2000; // usec
+	frametime = 1000000 / frame_rate; // usec
 //	printf("frametime-2000 = %d usec\n", frametime);
 
 //	printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
@@ -1515,6 +1500,12 @@ int open_file(char * filename)
 	init_sound(pCodecCtxA);
 
 	return 0;
+}
+
+gboolean main_quit(gpointer data)
+{
+	gtk_main_quit();
+	return FALSE;
 }
 
 static gpointer read_frames(gpointer args)
@@ -1588,6 +1579,7 @@ static gpointer read_frames(gpointer args)
 //printf("av_packet_unref\n");
 
 	avformat_close_input(&pFormatCtx);
+	avformat_network_deinit();
 
 	pthread_mutex_lock(&vqmutex);
 	pthread_mutex_lock(&aqmutex);
@@ -1620,6 +1612,8 @@ static gpointer read_frames(gpointer args)
 
 	playerstatus = idle;
 
+	gdk_threads_add_idle(main_quit, NULL);
+
 //printf("exiting read_frames\n");
 	retval_readframes = 0;
 	pthread_exit(&retval_readframes);
@@ -1644,6 +1638,7 @@ void* videoPlayFromQueue(void *arg)
 {
 	struct videoqueue *p;
 	UserData *userData;
+	long diff;
 
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
 	int ctype_old;
@@ -1668,10 +1663,31 @@ void* videoPlayFromQueue(void *arg)
 	GLfloat yuv2rgbmatrix[9] = { 1.0, 0.0, 1.5958, 1.0, -0.3917, -0.8129, 1.0, 2.017, 0.0 };
 	glUniformMatrix3fv(userData->cmatrixLoc, 1, FALSE, yuv2rgbmatrix);
 
+	diff = 0;
 	while (1)
 	{
 		if ((p = vq_remove(&vq)) == NULL)
 			break;
+
+		if (diff > 0)
+		{
+			diff-=frametime;
+			if (diff<0)
+			{
+				usleep(0-diff);
+				diff = 0;
+			}
+//printf("skip %d\n", p->label);
+
+			free(p->rgba);
+//printf("free rgba\n");
+			av_packet_unref(p->packet);
+//printf("av_packet_unref\n");
+			free(p);
+//printf("free vq\n");
+
+			continue;
+		}
 
 		get_first_time_microseconds();
 
@@ -1681,11 +1697,11 @@ void* videoPlayFromQueue(void *arg)
 
 		long diff=get_next_time_microseconds();
 
-		if (frametime>diff)
+		diff -= frametime - 1000;
+		if (diff<0)
 		{
-			diff = frametime - diff;
-//printf("%lu\n", diff);
-			usleep(diff);
+			usleep(0-diff);
+			diff = 0;
 		}
 
 		free(p->rgba);
@@ -1824,20 +1840,14 @@ int main(int argc, char** argv)
     
     /* Sets the border width of the window. */
     gtk_container_set_border_width (GTK_CONTAINER (window), 10);
-
-    image = gtk_image_new();
-    gtk_widget_show (image);
-
-    /* This packs the button into the window (a gtk container). */
-    gtk_container_add (GTK_CONTAINER (window), image);
-        
+       
     /* and the window */
     gtk_widget_show (window);
     
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or
      * mouse event). */
-    gtk_main ();
+    gtk_main();
     
     return 0;
 }

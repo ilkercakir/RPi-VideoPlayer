@@ -37,6 +37,7 @@ To Do
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
+#include <ctype.h>
 
 #include <sqlite3.h> 
 
@@ -68,6 +69,7 @@ GtkWidget *button3;
 GtkWidget *button4;
 GtkWidget *button5;
 GtkWidget *button6;
+GtkWidget *button7;
 GtkWidget *listview;
 GtkListStore *store;
 GtkTreeIter iter;
@@ -382,19 +384,12 @@ void init_ogl(CUBE_STATE_T *state)
 
     dst_rect.width = p_state->screen_width;
     dst_rect.height = p_state->screen_height;
-/*
-    dst_rect.width = p_state->screen_width / 2;
-    dst_rect.height = p_state->screen_height / 2;
-*/
+
     src_rect.x = 0;
     src_rect.y = 0;
 
     src_rect.width = p_state->screen_width << 16;
     src_rect.height = p_state->screen_height << 16;
-/*
-    src_rect.width = p_state->screen_width << 15;
-    src_rect.height = p_state->screen_height << 15;
-*/
 
     dispman_display = vc_dispmanx_display_open( 0 /* LCD */);
     dispman_update = vc_dispmanx_update_start( 0 );
@@ -866,7 +861,7 @@ struct audioqueue
 };
 struct audioqueue *aq;
 int aqLength;
-const int aqMaxLength = 60;
+const int aqMaxLength = 20;
 pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1149,7 +1144,8 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 
 	if (p->dst_data)
 	{
-		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
+		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4);
+		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
 //printf("snd_pcm_writei err:%d\n", err);
 
 		av_freep(&(p->dst_data[0]));
@@ -1496,7 +1492,7 @@ struct videoqueue
 };
 struct videoqueue *vq;
 int vqLength;
-const int vqMaxLength = 40;
+const int vqMaxLength = 15;
 pthread_mutex_t vqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t vqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t vqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1737,17 +1733,41 @@ char* strreplace(char *src, char *search, char *replace)
 	return dest;
 }
 
-char* strlastpart(char *src, char *search)
+char* strlastpart(char *src, char *search, int lowerupper)
 {
 	char *p;
 	char *q;
+	int i;
 
 	q = &src[strlen(src)];
 	for(p = src; (p = strstr(p, search)); p += strlen(search))
 	{
 		q = p;
 	}
+	switch (lowerupper)
+	{
+		case 0:
+			break;
+		case 1:
+			for(i=0;q[i];i++) q[i] = tolower(q[i]);
+			break;
+		case 2:
+			for(i=0;q[i];i++) q[i] = toupper(q[i]);
+			break;
+	}
+	
 	return q;
+}
+
+int nomediafile(char *filepath)
+{
+	return
+	(
+		strcmp(strlastpart(filepath, ".", 1), ".mp4") &&
+		strcmp(strlastpart(filepath, ".", 1), ".mp3") &&
+		strcmp(strlastpart(filepath, ".", 1), ".mov") &&
+		strcmp(strlastpart(filepath, ".", 1), ".mkv")
+	);
 }
 
 int open_file(char * filename)
@@ -2098,7 +2118,7 @@ gboolean invalidate(gpointer data)
 	GdkWindow *dawin = gtk_widget_get_window(dwgarea);
 	cairo_region_t *region = gdk_window_get_clip_region(dawin);
 	gdk_window_invalidate_region (dawin, region, TRUE);
-	gdk_window_process_updates (dawin, TRUE);
+	//gdk_window_process_updates (dawin, TRUE);
 	cairo_region_destroy(region);
 	return FALSE;
 }
@@ -2329,7 +2349,7 @@ static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
 static void destroy(GtkWidget *widget, gpointer data)
 {
 //printf("gtk_main_quit\n");
-    gtk_main_quit ();
+    gtk_main_quit();
 }
 
 /* Redraw the screen from the surface. Note that the ::draw
@@ -2374,12 +2394,12 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 {
 	int ret;
 
+	if (!now_playing)
+		return;
+
 //g_print("Button 1 clicked\n");
 	gtk_widget_set_sensitive(button1, FALSE);
 	gtk_widget_set_sensitive(button2, TRUE);
-
-	if (!now_playing)
-		return;
 
 	// Init Video Queue
 	vq_init(&vq, &vqmutex, &vqlowcond, &vqhighcond);
@@ -2427,9 +2447,9 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	pop_message(statusbar, context_id);
 	char msg[1024];
 	if (videoStream!=-1)
-		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/"));
+		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/", 0));
 	else
-		sprintf(msg, "%s", strlastpart(now_playing, "/"));
+		sprintf(msg, "%s", strlastpart(now_playing, "/", 0));
 	push_message(statusbar, context_id, msg);
 
 	gtk_window_resize(GTK_WINDOW(window), 100, 100);
@@ -2548,7 +2568,7 @@ static GtkWidget* create_view_and_model(void)
 	return view;
 }
 
-void listview_onRowActivated (GtkTreeView *treeview, GtkTreePath *path, GtkTreeViewColumn *col, gpointer userdata)
+void listview_onRowActivated(GtkTreeView *treeview, GtkTreePath *path, GtkTreeViewColumn *col, gpointer userdata)
 {
 	GtkTreeModel *model;
 	GtkTreeIter iter;
@@ -2633,38 +2653,35 @@ void listdir(const char *name, sqlite3 *db, int *id)
 		else
 		{
 //printf("%*s- %s/%s\n", level*2, "", name, entry->d_name);
-				// if entry->d_name ends with .mp4 ...
-				if ( (strcmp(strlastpart(entry->d_name, "."), ".mp4"))
-				  && (strcmp(strlastpart(entry->d_name, "."), ".mp3"))
-				   )
+			if (nomediafile(entry->d_name))
 				continue;
-				
-				(*id)++;
-				sprintf(sid, "%d", *id);
-				sql[0] = '\0';
-				strcat(sql, "INSERT INTO mediafiles VALUES(");
-				strcat(sql, sid);
-				strcat(sql, ", '");
-				strcat(sql, name);
-				strcat(sql, "/");
-					//strcat(sql, entry->d_name);
-					strname=(char*)malloc(sizeof(entry->d_name)+1);
-					strcpy(strname, entry->d_name);
-					strdest = strreplace(strname, "'", "''");
-					free(strname);
-					strcat(sql, strdest);
-					free(strdest);
-				strcat(sql, "');");
+
+			(*id)++;
+			sprintf(sid, "%d", *id);
+			sql[0] = '\0';
+			strcat(sql, "INSERT INTO mediafiles VALUES(");
+			strcat(sql, sid);
+			strcat(sql, ", '");
+			strcat(sql, name);
+			strcat(sql, "/");
+				//strcat(sql, entry->d_name);
+				strname=(char*)malloc(sizeof(entry->d_name)+1);
+				strcpy(strname, entry->d_name);
+				strdest = strreplace(strname, "'", "''");
+				free(strname);
+				strcat(sql, strdest);
+				free(strdest);
+			strcat(sql, "');");
 //printf("%s\n", sql);
-				if((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
-				{
-					printf("Failed to insert data, %s\n", err_msg);
-					sqlite3_free(err_msg);
-				}
-				else
-				{
+			if((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
+			{
+				printf("Failed to insert data, %s\n", err_msg);
+				sqlite3_free(err_msg);
+			}
+			else
+			{
 // success
-				}
+			}
 		}
 	}
 	while((entry = readdir(dir)));
@@ -2679,7 +2696,7 @@ static void button5_clicked(GtkWidget *button, gpointer data)
 	int rc;
 	int id;
 
-	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+	if ((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
 	{
 		printf("Can't open database: %s\n", sqlite3_errmsg(db));
 	}
@@ -2687,7 +2704,7 @@ static void button5_clicked(GtkWidget *button, gpointer data)
 	{
 //printf("Opened database successfully\n");
 		sql = "DELETE FROM mediafiles;";
-		if((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
+		if ((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
 		{
 			printf("Failed to delete data, %s\n", err_msg);
 			sqlite3_free(err_msg);
@@ -2713,7 +2730,7 @@ static void button6_clicked(GtkWidget *button, gpointer data)
 		catalog_folder = NULL;
 	}
 
-	dialog = gtk_file_chooser_dialog_new("Open Folder for Catalog", GTK_WINDOW(window), action, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT, NULL);
+	dialog = gtk_file_chooser_dialog_new("Open Folder for Catalog", GTK_WINDOW(window), action, "Cancel", GTK_RESPONSE_CANCEL, "Select Folder", GTK_RESPONSE_ACCEPT, NULL);
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
 	{
 		GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
@@ -2721,6 +2738,112 @@ static void button6_clicked(GtkWidget *button, gpointer data)
 //printf("%s\n", catalog_folder);
 	}
 	gtk_widget_destroy (dialog);
+}
+
+int last_id;
+
+int select_add_callback(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	last_id = atoi(argv[0]);
+	return 0;
+}
+
+int select_add_lastid()
+{
+	sqlite3 *db;
+	char *err_msg = NULL;
+	char *sql = NULL;
+	int rc;
+
+	last_id = 0;
+	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+	{
+		printf("Can't open database: %s\n", sqlite3_errmsg(db));
+	}
+	else
+	{
+//printf("Opened database successfully\n");
+		sql = "SELECT max(id) as id FROM mediafiles;";
+		if((rc = sqlite3_exec(db, sql, select_add_callback, 0, &err_msg)) != SQLITE_OK)
+		{
+			printf("Failed to select data, %s\n", err_msg);
+			sqlite3_free(err_msg);
+		}
+		else
+		{
+// success
+		}
+	}
+	sqlite3_close(db);
+
+	return(last_id);
+}
+
+static void button7_clicked(GtkWidget *button, gpointer data)
+{
+	char *err_msg = NULL;
+	sqlite3 *db;
+	int rc;
+	int id;
+	char sql[1024];
+	char sid[10];
+	char *strname;
+	char *strdest;
+
+	GtkWidget *dialog;
+	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+	GSList *chosenfile;
+
+	dialog = gtk_file_chooser_dialog_new("Add File", GTK_WINDOW(window), action, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL);
+	GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+	gtk_file_chooser_set_select_multiple(chooser, TRUE);
+	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+	{
+		if ((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+		{
+			printf("Can't open database: %s\n", sqlite3_errmsg(db));
+		}
+		else
+		{
+			id = select_add_lastid();
+			GSList *filelist = gtk_file_chooser_get_filenames(chooser);
+			for(chosenfile=filelist;chosenfile;chosenfile=chosenfile->next)
+			{
+//printf("%s\n", (char*)chosenfile->data);
+				if (nomediafile((char*)chosenfile->data))
+					continue;
+
+				id++;
+				sprintf(sid, "%d", id);
+				sql[0] = '\0';
+				strcat(sql, "INSERT INTO mediafiles VALUES(");
+				strcat(sql, sid);
+				strcat(sql, ", '");
+					//strcat(sql, (char*)chosenfile->data));
+					strname=(char*)malloc(1024);
+					strcpy(strname, (char*)chosenfile->data);
+					strdest = strreplace(strname, "'", "''");
+					free(strname);
+					strcat(sql, strdest);
+					free(strdest);
+				strcat(sql, "');");
+//printf("%s\n", sql);
+				if ((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
+				{
+					printf("Failed to insert data, %s\n", err_msg);
+					sqlite3_free(err_msg);
+				}
+				else
+				{
+// success
+				}
+			}
+			button3_clicked(button3, NULL);
+			button4_clicked(button4, NULL);
+		}
+		sqlite3_close(db);
+	}
+	gtk_widget_destroy(dialog);
 }
 
 gboolean play_next(gpointer data)
@@ -3016,6 +3139,10 @@ int main(int argc, char** argv)
     g_signal_connect(GTK_BUTTON(button5), "clicked", G_CALLBACK(button5_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box2), button5);
 
+    button7 = gtk_button_new_with_label("Add File");
+    g_signal_connect(GTK_BUTTON(button7), "clicked", G_CALLBACK(button7_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box2), button7);
+
     button4 = gtk_button_new_with_label("Load");
     g_signal_connect(GTK_BUTTON(button4), "clicked", G_CALLBACK(button4_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box2), button4);
@@ -3037,6 +3164,9 @@ int main(int argc, char** argv)
 
     gtk_widget_show_all(window);
 //printf("Show window\n");
+
+	now_playing = argv[1];
+	button1_clicked(button1, NULL);
 
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or
