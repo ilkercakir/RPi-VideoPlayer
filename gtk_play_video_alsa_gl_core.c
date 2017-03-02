@@ -5,8 +5,7 @@ Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags
 */
 /*
 To Do
-1) Equalizer
-2) gtk 3.18 / wayland
+1) gtk 3.18 / wayland
 */
 
 #define _GNU_SOURCE
@@ -47,6 +46,8 @@ To Do
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+
+#define M_LN2 0.69314718055994530942
 
 GtkWidget *image;
 GtkWidget *window;
@@ -94,6 +95,54 @@ GtkWidget *verti6;
 GtkWidget *label6;
 GtkWidget *statusbar;
 gint context_id;
+GtkWidget *windoweq;
+GtkWidget *eqvbox;
+GtkWidget *eqbox;
+GtkWidget *eqbox2;
+GtkAdjustment *vadj0;
+GtkAdjustment *vadj1;
+GtkAdjustment *vadj2;
+GtkAdjustment *vadj3;
+GtkAdjustment *vadj4;
+GtkAdjustment *vadj5;
+GtkAdjustment *vadj6;
+GtkAdjustment *vadj7;
+GtkAdjustment *vadj8;
+GtkAdjustment *vadj9;
+GtkWidget *vscaleeq0;
+GtkWidget *vscaleeq1;
+GtkWidget *vscaleeq2;
+GtkWidget *vscaleeq3;
+GtkWidget *vscaleeq4;
+GtkWidget *vscaleeq5;
+GtkWidget *vscaleeq6;
+GtkWidget *vscaleeq7;
+GtkWidget *vscaleeq8;
+GtkWidget *vscaleeq9;
+GtkWidget *eqbox0;
+GtkWidget *eqbox1;
+GtkWidget *eqbox2;
+GtkWidget *eqbox3;
+GtkWidget *eqbox4;
+GtkWidget *eqbox5;
+GtkWidget *eqbox6;
+GtkWidget *eqbox7;
+GtkWidget *eqbox8;
+GtkWidget *eqbox9;
+GtkWidget *eqlabel0;
+GtkWidget *eqlabel1;
+GtkWidget *eqlabel2;
+GtkWidget *eqlabel3;
+GtkWidget *eqlabel4;
+GtkWidget *eqlabel5;
+GtkWidget *eqlabel6;
+GtkWidget *eqlabel7;
+GtkWidget *eqlabel8;
+GtkWidget *eqlabel9;
+
+GtkWidget *eqenable;
+GtkWidget *combopreset;
+
 char leveltext1[10];
 char leveltext2[10];
 char leveltext3[10];
@@ -849,6 +898,7 @@ static void pixmap_destroy_notify(guchar *pixels, gpointer data)
 }
 */
 
+
 // Audio
 struct audioqueue
 {
@@ -861,7 +911,7 @@ struct audioqueue
 };
 struct audioqueue *aq;
 int aqLength;
-const int aqMaxLength = 20;
+const int aqMaxLength = 30;
 pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1048,7 +1098,8 @@ snd_pcm_t *handle;
 signed short *samples;
 snd_pcm_channel_area_t *areas;
 snd_output_t *output = NULL;
-char *device = "plughw:0,0";	// playback device
+//char *device = "plughw:0,0";	// playback device
+char *device = "default";	// playback device
 unsigned int rate = 44100;		// stream rate
 snd_pcm_format_t format = SND_PCM_FORMAT_S16;	// sample format
 unsigned int channels = 2;		// count of channels
@@ -1061,6 +1112,313 @@ snd_pcm_sw_params_t *swparams;
 
 const int persize = 1024;	// 
 const int bufsize = 10240; // persize * 10; // 10 periods
+
+// Biquad Audio Equalizer
+/* filter types */
+enum {
+   LPF, /* low pass filter */
+   HPF, /* High pass filter */
+   BPF, /* band pass filter */
+   NOTCH, /* Notch Filter */
+   PEQ, /* Peaking band EQ filter */
+   LSH, /* Low shelf filter */
+   HSH /* High shelf filter */
+};
+
+typedef struct biquad
+{
+   float a0, a1, a2, a3, a4;
+   float x1, x2, y1, y2;
+};
+
+#define EQBANDS 10
+const float eqfreqs[EQBANDS] = {31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0};
+const char* eqlabels[EQBANDS] = {"31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"};
+struct biquad bqLeft[EQBANDS], bqRight[EQBANDS];
+float eqoctave = 2.0;
+pthread_mutex_t eqmutex; // = PTHREAD_MUTEX_INITIALIZER;
+
+/* Computes a BiQuad filter on a sample */
+inline float BiQuad(float sample, struct biquad *b)
+{
+   float result;
+
+   /* compute result */
+   result = b->a0 * sample + b->a1 * b->x1 + b->a2 * b->x2 - b->a3 * b->y1 - b->a4 * b->y2;
+
+   /* shift x1 to x2, sample to x1 */
+   b->x2 = b->x1;
+   b->x1 = sample;
+
+   /* shift y1 to y2, result to y1 */
+   b->y2 = b->y1;
+   b->y1 = result;
+
+   return result;
+}
+
+/* sets up a BiQuad Filter */
+void BiQuad_init(int type, float dbGain, float freq, float srate, float bandwidth, struct biquad *b)
+{
+   float A, omega, sn, cs, alpha, beta;
+   float a0, a1, a2, b0, b1, b2;
+
+   /* setup variables */
+   A = pow(10, dbGain /40);
+   omega = 2 * M_PI * freq /srate;
+   sn = sin(omega);
+   cs = cos(omega);
+   alpha = sn * sinh(M_LN2 /2 * bandwidth * omega /sn);
+   beta = sqrt(A + A);
+
+   switch (type) {
+   case LPF:
+       b0 = (1 - cs) /2;
+       b1 = 1 - cs;
+       b2 = (1 - cs) /2;
+       a0 = 1 + alpha;
+       a1 = -2 * cs;
+       a2 = 1 - alpha;
+       break;
+   case HPF:
+       b0 = (1 + cs) /2;
+       b1 = -(1 + cs);
+       b2 = (1 + cs) /2;
+       a0 = 1 + alpha;
+       a1 = -2 * cs;
+       a2 = 1 - alpha;
+       break;
+   case BPF:
+       b0 = alpha;
+       b1 = 0;
+       b2 = -alpha;
+       a0 = 1 + alpha;
+       a1 = -2 * cs;
+       a2 = 1 - alpha;
+       break;
+   case NOTCH:
+       b0 = 1;
+       b1 = -2 * cs;
+       b2 = 1;
+       a0 = 1 + alpha;
+       a1 = -2 * cs;
+       a2 = 1 - alpha;
+       break;
+   case PEQ:
+       b0 = 1 + (alpha * A);
+       b1 = -2 * cs;
+       b2 = 1 - (alpha * A);
+       a0 = 1 + (alpha /A);
+       a1 = -2 * cs;
+       a2 = 1 - (alpha /A);
+       break;
+   case LSH:
+       b0 = A * ((A + 1) - (A - 1) * cs + beta * sn);
+       b1 = 2 * A * ((A - 1) - (A + 1) * cs);
+       b2 = A * ((A + 1) - (A - 1) * cs - beta * sn);
+       a0 = (A + 1) + (A - 1) * cs + beta * sn;
+       a1 = -2 * ((A - 1) + (A + 1) * cs);
+       a2 = (A + 1) + (A - 1) * cs - beta * sn;
+       break;
+   case HSH:
+       b0 = A * ((A + 1) + (A - 1) * cs + beta * sn);
+       b1 = -2 * A * ((A - 1) + (A + 1) * cs);
+       b2 = A * ((A + 1) + (A - 1) * cs - beta * sn);
+       a0 = (A + 1) - (A - 1) * cs + beta * sn;
+       a1 = 2 * ((A - 1) - (A + 1) * cs);
+       a2 = (A + 1) - (A - 1) * cs - beta * sn;
+       break;
+   }
+
+	pthread_mutex_lock(&eqmutex);
+
+   /* precompute the coefficients */
+   b->a0 = b0 /a0;
+   b->a1 = b1 /a0;
+   b->a2 = b2 /a0;
+   b->a3 = a1 /a0;
+   b->a4 = a2 /a0;
+
+   /* zero initial samples */
+   b->x1 = b->x2 = 0;
+   b->y1 = b->y2 = 0;
+
+   pthread_mutex_unlock(&eqmutex);
+}
+
+static void vscale0(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(LSH, value, eqfreqs[0], (float)rate, eqoctave, &(bqLeft[0]));
+	BiQuad_init(LSH, value, eqfreqs[0], (float)rate, eqoctave, &(bqRight[0]));
+}
+
+static void vscale1(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[1], (float)rate, eqoctave, &(bqLeft[1]));
+	BiQuad_init(PEQ, value, eqfreqs[1], (float)rate, eqoctave, &(bqRight[1]));
+}
+
+static void vscale2(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[2], (float)rate, eqoctave, &(bqLeft[2]));
+	BiQuad_init(PEQ, value, eqfreqs[2], (float)rate, eqoctave, &(bqRight[2]));
+}
+
+static void vscale3(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[3], (float)rate, eqoctave, &(bqLeft[3]));
+	BiQuad_init(PEQ, value, eqfreqs[3], (float)rate, eqoctave, &(bqRight[3]));
+}
+
+static void vscale4(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[4], (float)rate, eqoctave, &(bqLeft[4]));
+	BiQuad_init(PEQ, value, eqfreqs[4], (float)rate, eqoctave, &(bqRight[4]));
+}
+
+static void vscale5(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[5], (float)rate, eqoctave, &(bqLeft[5]));
+	BiQuad_init(PEQ, value, eqfreqs[5], (float)rate, eqoctave, &(bqRight[5]));
+}
+
+static void vscale6(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[6], (float)rate, eqoctave, &(bqLeft[6]));
+	BiQuad_init(PEQ, value, eqfreqs[6], (float)rate, eqoctave, &(bqRight[6]));
+}
+
+static void vscale7(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[7], (float)rate, eqoctave, &(bqLeft[7]));
+	BiQuad_init(PEQ, value, eqfreqs[7], (float)rate, eqoctave, &(bqRight[7]));
+}
+
+static void vscale8(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(PEQ, value, eqfreqs[8], (float)rate, eqoctave, &(bqLeft[8]));
+	BiQuad_init(PEQ, value, eqfreqs[8], (float)rate, eqoctave, &(bqRight[8]));
+}
+
+static void vscale9(GtkWidget *widget, gpointer data)
+{
+    float value = 0.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+	BiQuad_init(HSH, value, eqfreqs[9], (float)rate, eqoctave, &(bqLeft[9]));
+	BiQuad_init(HSH, value, eqfreqs[9], (float)rate, eqoctave, &(bqRight[9]));
+}
+
+void BiQuad_initAll(float samplerate, float octave)
+{
+	eqoctave = octave;
+
+	vscale0(vscaleeq0, NULL);
+	vscale1(vscaleeq1, NULL);
+	vscale2(vscaleeq2, NULL);
+	vscale3(vscaleeq3, NULL);
+	vscale4(vscaleeq4, NULL);
+	vscale5(vscaleeq5, NULL);
+	vscale6(vscaleeq6, NULL);
+	vscale7(vscaleeq7, NULL);
+	vscale8(vscaleeq8, NULL);
+	vscale9(vscaleeq9, NULL);
+
+/*
+	BiQuad_init(LSH, 0.0, eqfreqs[0], samplerate, octave, &(bqLeft[0]));
+	BiQuad_init(LSH, 0.0, eqfreqs[0], samplerate, octave, &(bqRight[0]));
+
+	BiQuad_init(PEQ, 0.0, 120.0, samplerate, octave, &(bqLeft[1]));
+	BiQuad_init(PEQ, 0.0, 120.0, samplerate, octave, &(bqRight[1]));
+
+	BiQuad_init(PEQ, 0.0, 250.0, samplerate, octave, &(bqLeft[2]));
+	BiQuad_init(PEQ, 0.0, 250.0, samplerate, octave, &(bqRight[2]));
+
+	BiQuad_init(PEQ, 0.0, 500.0, samplerate, octave, &(bqLeft[3]));
+	BiQuad_init(PEQ, 0.0, 500.0, samplerate, octave, &(bqRight[3]));
+
+	BiQuad_init(PEQ, 0.0, 1000.0, samplerate, octave, &(bqLeft[4]));
+	BiQuad_init(PEQ, 0.0, 1000.0, samplerate, octave, &(bqRight[4]));
+
+	BiQuad_init(PEQ, 0.0, 2000.0, samplerate, octave, &(bqLeft[5]));
+	BiQuad_init(PEQ, 0.0, 2000.0, samplerate, octave, &(bqRight[5]));
+
+	BiQuad_init(PEQ, 0.0, 4000.0, samplerate, octave, &(bqLeft[6]));
+	BiQuad_init(PEQ, 0.0, 4000.0, samplerate, octave, &(bqRight[6]));
+
+	BiQuad_init(PEQ, 0.0, 8000.0, samplerate, octave, &(bqLeft[7]));
+	BiQuad_init(PEQ, 0.0, 8000.0, samplerate, octave, &(bqRight[7]));
+
+	BiQuad_init(PEQ, 0.0, 12000.0, samplerate, octave, &(bqLeft[8]));
+	BiQuad_init(PEQ, 0.0, 12000.0, samplerate, octave, &(bqRight[8]));
+
+	BiQuad_init(HSH, 0.0, eqfreqs[EQBANDS-1], samplerate, octave, &(bqLeft[EQBANDS-1]));
+	BiQuad_init(HSH, 0.0, eqfreqs[EQBANDS-1], samplerate, octave, &(bqRight[EQBANDS-1]));
+*/
+}
+
+void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample, float preampfactor)
+{
+	int a, b;
+	signed short *intp;
+	intp=(signed short *)buf;
+
+	pthread_mutex_lock(&eqmutex);
+	for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
+	{
+		intp[b] *= preampfactor;
+		intp[b+1] *= preampfactor;
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[0]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[0]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[1]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[1]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[2]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[2]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[3]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[3]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[4]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[4]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[5]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[5]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[6]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[6]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[7]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[7]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[8]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[8]));
+
+		intp[b] = BiQuad(intp[b], &(bqLeft[9]));
+		intp[b+1] = BiQuad(intp[b+1], &(bqRight[9]));
+	}
+	pthread_mutex_unlock(&eqmutex);
+}
+
 
 void write_status(snd_pcm_state_t stat)
 {
@@ -1144,6 +1502,8 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 
 	if (p->dst_data)
 	{
+		if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)))
+			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels, 0.5);
 		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4);
 		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
 //printf("snd_pcm_writei err:%d\n", err);
@@ -1840,9 +2200,17 @@ int open_file(char * filename)
 		sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
 */
 		AVStream *st = pFormatCtx->streams[videoStream];
-		frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
+		if (st->avg_frame_rate.den)
+		{
+			frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
+			frametime = 1000000 / frame_rate; // usec
+		}
+		else
+		{
+			frame_rate = 0;
+			frametime = 1000000; // 1s
+		}
 //printf("Frame rate = %2.2f\n", frame_rate);
-		frametime = 1000000 / frame_rate; // usec
 //printf("frametime = %d usec\n", frametime);
 //printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
 		videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate;
@@ -1898,6 +2266,8 @@ int open_file(char * filename)
 
 	//initialize ALSA lib
 	init_sound(pCodecCtxA);
+
+	BiQuad_initAll((float)rate, 2.0);
 
 	return 0;
 }
@@ -2257,7 +2627,7 @@ diff5=get_next_time_microseconds();
 		free(p);
 //printf("free vq\n");
 
-		diff = diff3 + diff4 + diff5 + 1000;
+		diff = diff3 + diff4 + diff5 + 2000;
 		//printf("%5lu usec frame, frametime %5d\n", diff, frametime);
 		diff -= frametime;
 		if (diff<0)
@@ -2321,8 +2691,7 @@ void create_thread_framereader()
     {}
 }
 
-/* Called when the windows are realized
- */
+/* Called when the windows are realized */
 static void realize_cb(GtkWidget *widget, gpointer data)
 {
 	GtkAllocation *alloc = g_new(GtkAllocation, 1);
@@ -2331,6 +2700,7 @@ static void realize_cb(GtkWidget *widget, gpointer data)
 	g_free(alloc);
 	//printf("Scale height %d\n", scaleheight);
 	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
+
 }
 
 static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
@@ -2340,8 +2710,8 @@ static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
      * you don't want the window to be destroyed.
      * This is useful for popping up 'are you sure you want to quit?'
      * type dialogs. */
-
 //g_print ("delete event occurred\n");
+	pthread_mutex_destroy(&eqmutex);
     return FALSE;
 }
 
@@ -2960,6 +3330,170 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 	return FALSE;
 }
 
+gchar* scale_valueformat(GtkScale *scale, gdouble value, gpointer user_data)
+{
+	return g_strdup_printf("%0.1f", -value);
+}
+
+static gboolean delete_event_eq(GtkWidget *widget, GdkEvent *event, gpointer data)
+{
+    /* If you return FALSE in the "delete-event" signal handler,
+     * GTK will emit the "destroy" signal. Returning TRUE means
+     * you don't want the window to be destroyed.
+     * This is useful for popping up 'are you sure you want to quit?'
+     * type dialogs. */
+//g_print ("delete event occurred\n");
+    return TRUE;
+}
+
+void point2comma(char *c)
+{
+	int i;
+
+	for(i=0;c[i];i++)
+		if (c[i]=='.')
+			c[i]=',';
+}
+
+int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	char* errCheck;
+	double f;
+
+	point2comma(argv[1]);
+	f=strtod(argv[1], &errCheck);
+	if (errCheck == argv[1])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[1], argv[1]);
+	}
+	gtk_adjustment_set_value(vadj0, -f);
+
+	point2comma(argv[2]);
+	f=strtod(argv[2], &errCheck);
+	if (errCheck == argv[2])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[2], argv[2]);
+	}
+	gtk_adjustment_set_value(vadj1, -f);
+
+	point2comma(argv[3]);
+	f=strtod(argv[3], &errCheck);
+	if (errCheck == argv[3])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[3], argv[3]);
+	}
+	gtk_adjustment_set_value(vadj2, -f);
+
+	point2comma(argv[4]);
+	f=strtod(argv[4], &errCheck);
+	if (errCheck == argv[4])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[4], argv[4]);
+	}
+	gtk_adjustment_set_value(vadj3, -f);
+
+	point2comma(argv[5]);
+	f=strtod(argv[5], &errCheck);
+	if (errCheck == argv[5])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[5], argv[5]);
+	}
+	gtk_adjustment_set_value(vadj4, -f);
+
+	point2comma(argv[6]);
+	f=strtod(argv[6], &errCheck);
+	if (errCheck == argv[6])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[6], argv[6]);
+	}
+	gtk_adjustment_set_value(vadj5, -f);
+
+	point2comma(argv[7]);
+	f=strtod(argv[7], &errCheck);
+	if (errCheck == argv[7])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[7], argv[7]);
+	}
+	gtk_adjustment_set_value(vadj6, -f);
+
+	point2comma(argv[8]);
+	f=strtod(argv[8], &errCheck);
+	if (errCheck == argv[8])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[8], argv[8]);
+	}
+	gtk_adjustment_set_value(vadj7, -f);
+
+	point2comma(argv[9]);
+	f=strtod(argv[9], &errCheck);
+	if (errCheck == argv[9])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[9], argv[9]);
+	}
+	gtk_adjustment_set_value(vadj8, -f);
+
+	point2comma(argv[10]);
+	f=strtod(argv[10], &errCheck);
+	if (errCheck == argv[10])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[10], argv[10]);
+	}
+	gtk_adjustment_set_value(vadj9, -f);
+
+	return 0;
+}
+
+void select_eqpreset(char* id)
+{
+	sqlite3 *db;
+	char *err_msg = NULL;
+	char sql[256];
+	int rc;
+
+	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+	{
+		printf("Can't open database: %s\n", sqlite3_errmsg(db));
+	}
+	else
+	{
+//printf("Opened database successfully\n");
+		sql[0] = '\0';
+		strcat(sql, "SELECT * FROM eqpresets where id=");
+		strcat(sql, id);
+		strcat(sql, ";");
+		if((rc = sqlite3_exec(db, sql, select_eqpreset_callback, 0, &err_msg)) != SQLITE_OK)
+		{
+			printf("Failed to select data, %s\n", err_msg);
+			sqlite3_free(err_msg);
+		}
+		else
+		{
+// success
+		}
+	}
+	sqlite3_close(db);
+}
+
+static void preset_changed(GtkWidget *combo, gpointer data)
+{
+	gchar *strval;
+
+	g_object_get((gpointer)combo, "active-id", &strval, NULL);
+	//printf("Selected id %s\n", strval);
+	select_eqpreset(strval);
+	g_free(strval);
+}
+
 int main(int argc, char** argv)
 {
 	playerWidth = 800;
@@ -2967,6 +3501,13 @@ int main(int argc, char** argv)
 
 	int dawidth = playerWidth;
 	int daheight = playerHeight;
+
+	int ret;
+	if ((ret=pthread_mutex_init(&eqmutex, NULL))!=0 )
+	{
+		printf("EQ mutex init failed, %d\n", ret);
+		return -1;
+	}
 
      /* This is called in all GTK applications. Arguments are parsed
      * from the command line and are returned to the application. */
@@ -3165,13 +3706,207 @@ int main(int argc, char** argv)
     gtk_widget_show_all(window);
 //printf("Show window\n");
 
+    /* create a new window for EQ */
+    windoweq = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_position(GTK_WINDOW(windoweq), GTK_WIN_POS_CENTER);
+    /* When the window is given the "delete-event" signal (this is given
+     * by the window manager, usually by the "close" option, or on the
+     * titlebar), we ask it to call the delete_event () function
+     * as defined above. The data passed to the callback
+     * function is NULL and is ignored in the callback function. */
+    g_signal_connect (windoweq, "delete-event", G_CALLBACK(delete_event_eq), NULL);
+
+    gtk_container_set_border_width (GTK_CONTAINER (windoweq), 2);
+	gtk_widget_set_size_request(window, 100, 100);
+	gtk_window_set_title(GTK_WINDOW(windoweq), "Audio Equalizer");
+	gtk_window_set_resizable(GTK_WINDOW(windoweq), FALSE);
+
+// vertical box
+    eqvbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(windoweq), eqvbox);
+
+// horizontal box    
+    eqbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqvbox), eqbox);
+
+// vertical scale 0
+    eqbox0 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox0);
+    vadj0 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq0 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj0));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq0), 1);
+    g_signal_connect(vscaleeq0, "value-changed", G_CALLBACK(vscale0), NULL);
+	g_signal_connect(vscaleeq0, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox0), vscaleeq0);
+    gtk_widget_set_size_request(vscaleeq0, 40, 200);
+	eqlabel0 = gtk_label_new(eqlabels[0]);
+	gtk_container_add(GTK_CONTAINER(eqbox0), eqlabel0);
+    
+
+// vertical scale 1
+    eqbox1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox1);
+    vadj1 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq1 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj1));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq1), 1);
+    g_signal_connect(vscaleeq1, "value-changed", G_CALLBACK(vscale1), NULL);
+	g_signal_connect(vscaleeq1, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox1), vscaleeq1);
+    gtk_widget_set_size_request(vscaleeq1, 40, 200);
+	eqlabel1 = gtk_label_new(eqlabels[1]);
+	gtk_container_add(GTK_CONTAINER(eqbox1), eqlabel1);
+
+// vertical scale 2
+    eqbox2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox2);
+    vadj2 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq2 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj2));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq2), 1);
+    g_signal_connect(vscaleeq2, "value-changed", G_CALLBACK(vscale2), NULL);
+	g_signal_connect(vscaleeq2, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox2), vscaleeq2);
+    gtk_widget_set_size_request(vscaleeq2, 40, 200);
+	eqlabel2 = gtk_label_new(eqlabels[2]);
+	gtk_container_add(GTK_CONTAINER(eqbox2), eqlabel2);
+
+// vertical scale 3
+    eqbox3 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox3);
+    vadj3 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq3 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj3));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq3), 1);
+    g_signal_connect(vscaleeq3, "value-changed", G_CALLBACK(vscale3), NULL);
+	g_signal_connect(vscaleeq3, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox3), vscaleeq3);
+    gtk_widget_set_size_request(vscaleeq3, 40, 200);
+	eqlabel3 = gtk_label_new(eqlabels[3]);
+	gtk_container_add(GTK_CONTAINER(eqbox3), eqlabel3);
+
+// vertical scale 4
+    eqbox4 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox4);
+    vadj4 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq4 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj4));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq4), 1);
+    g_signal_connect(vscaleeq4, "value-changed", G_CALLBACK(vscale4), NULL);
+	g_signal_connect(vscaleeq4, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox4), vscaleeq4);
+    gtk_widget_set_size_request(vscaleeq4, 40, 200);
+	eqlabel4 = gtk_label_new(eqlabels[4]);
+	gtk_container_add(GTK_CONTAINER(eqbox4), eqlabel4);
+
+// vertical scale 5
+    eqbox5 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox5);
+    vadj5 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq5 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj5));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq5), 1);
+    g_signal_connect(vscaleeq5, "value-changed", G_CALLBACK(vscale5), NULL);
+	g_signal_connect(vscaleeq5, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox5), vscaleeq5);
+    gtk_widget_set_size_request(vscaleeq5, 40, 200);
+	eqlabel5 = gtk_label_new(eqlabels[5]);
+	gtk_container_add(GTK_CONTAINER(eqbox5), eqlabel5);
+
+// vertical scale 6
+    eqbox6 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox6);
+    vadj6 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq6 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj6));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq6), 1);
+    g_signal_connect(vscaleeq6, "value-changed", G_CALLBACK(vscale6), NULL);
+	g_signal_connect(vscaleeq6, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox6), vscaleeq6);
+    gtk_widget_set_size_request(vscaleeq6, 40, 200);
+	eqlabel6 = gtk_label_new(eqlabels[6]);
+	gtk_container_add(GTK_CONTAINER(eqbox6), eqlabel6);
+
+// vertical scale 7
+    eqbox7 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox7);
+    vadj7 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq7 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj7));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq7), 1);
+    g_signal_connect(vscaleeq7, "value-changed", G_CALLBACK(vscale7), NULL);
+	g_signal_connect(vscaleeq7, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox7), vscaleeq7);
+    gtk_widget_set_size_request(vscaleeq7, 40, 200);
+	eqlabel7 = gtk_label_new(eqlabels[7]);
+	gtk_container_add(GTK_CONTAINER(eqbox7), eqlabel7);
+
+// vertical scale 8
+    eqbox8 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox8);
+    vadj8 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq8 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj8));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq8), 1);
+    g_signal_connect(vscaleeq8, "value-changed", G_CALLBACK(vscale8), NULL);
+	g_signal_connect(vscaleeq8, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox8), vscaleeq8);
+    gtk_widget_set_size_request(vscaleeq8, 40, 200);
+	eqlabel8 = gtk_label_new(eqlabels[8]);
+	gtk_container_add(GTK_CONTAINER(eqbox8), eqlabel8);
+
+// vertical scale 9
+    eqbox9 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqbox9);
+    vadj9 = gtk_adjustment_new(0, -12, 12, 0.1, 1, 0);
+    vscaleeq9 = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadj9));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeq9), 1);
+    g_signal_connect(vscaleeq9, "value-changed", G_CALLBACK(vscale9), NULL);
+	g_signal_connect(vscaleeq9, "format-value", G_CALLBACK(scale_valueformat), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox9), vscaleeq9);
+    gtk_widget_set_size_request(vscaleeq9, 40, 200);
+	eqlabel9 = gtk_label_new(eqlabels[9]);
+	gtk_container_add(GTK_CONTAINER(eqbox9), eqlabel9);
+
+// horizontal box
+    eqbox2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqvbox), eqbox2);
+
+// checkbox
+	eqenable = gtk_check_button_new_with_label("EQ Enable");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(eqenable), TRUE);
+	gtk_container_add(GTK_CONTAINER(eqbox2), eqenable);
+
+// combobox
+    combopreset = gtk_combo_box_text_new();
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "0", "Custom");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "1", "Preset 1");
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "2", "Preset 2");
+    g_signal_connect(GTK_COMBO_BOX(combopreset), "changed", G_CALLBACK(preset_changed), NULL);
+    gtk_container_add(GTK_CONTAINER(eqbox2), combopreset);
+
+    gtk_widget_show_all(windoweq);
+
 	now_playing = argv[1];
 	button1_clicked(button1, NULL);
 
     /* All GTK applications must have a gtk_main(). Control ends here
-     * and waits for an event to occur (like a key press or
-     * mouse event). */
+     * and waits for an event to occur (like a key press or mouse event). */
     gtk_main ();
-    
+
+	pthread_mutex_destroy(&seekmutex);
+
     return 0;
 }
