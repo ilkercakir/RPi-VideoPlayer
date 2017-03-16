@@ -1,7 +1,7 @@
 /*
 Using Geany Editor
-Compile with gcc -Wall -c "%f" -DUSE_OPENGL -DUSE_EGL -DIS_RPI -DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -g -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -ftree-vectorize -pipe -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi $(pkg-config --cflags gtk+-3.0) -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads -I/opt/vc/include/interface/vmcs_host/linux -I/home/pi/userland -I./ -Wno-deprecated-declarations
-Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags gtk+-3.0) -Wl,--whole-archive -I/opt/vc/include -I/home/pi/userland -L/opt/vc/lib/ -lGLESv2 -lEGL -lopenmaxil -lbcm_host -lvcos -lvchiq_arm -lpthread -lrt -L/opt/vc/src/hello_pi/libs/vgfont -ldl -lm -Wl,--no-whole-archive -rdynamic $(pkg-config --libs gtk+-3.0) $(pkg-config --libs libavcodec libavformat libavutil libswscale) -lasound $(pkg-config --libs sqlite3)
+Compie with gcc -Wall -c "%f" -DUSE_OPENGL -DUSE_EGL -DIS_RPI -DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -g -ftree-vectorize -pipe -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi $(pkg-config --cflags gtk+-3.0) -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads -I/opt/vc/include/interface/vmcs_host/linux -Wno-deprecated-declarations
+Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags gtk+-3.0) -Wl,--whole-archive -I/opt/vc/include -L/opt/vc/lib/ -lGLESv2 -lEGL -lbcm_host -lvchiq_arm -lpthread -lrt -ldl -lm -Wl,--no-whole-archive -rdynamic $(pkg-config --libs gtk+-3.0) $(pkg-config --libs libavcodec libavformat libavutil libswscale) -lasound $(pkg-config --libs sqlite3)
 */
 /*
 To Do
@@ -109,6 +109,7 @@ GtkAdjustment *vadj6;
 GtkAdjustment *vadj7;
 GtkAdjustment *vadj8;
 GtkAdjustment *vadj9;
+GtkAdjustment *vadjA;
 GtkWidget *vscaleeq0;
 GtkWidget *vscaleeq1;
 GtkWidget *vscaleeq2;
@@ -119,6 +120,7 @@ GtkWidget *vscaleeq6;
 GtkWidget *vscaleeq7;
 GtkWidget *vscaleeq8;
 GtkWidget *vscaleeq9;
+GtkWidget *vscaleeqA;
 GtkWidget *eqbox0;
 GtkWidget *eqbox1;
 GtkWidget *eqbox2;
@@ -129,6 +131,7 @@ GtkWidget *eqbox6;
 GtkWidget *eqbox7;
 GtkWidget *eqbox8;
 GtkWidget *eqbox9;
+GtkWidget *eqboxA;
 GtkWidget *eqlabel0;
 GtkWidget *eqlabel1;
 GtkWidget *eqlabel2;
@@ -139,6 +142,7 @@ GtkWidget *eqlabel6;
 GtkWidget *eqlabel7;
 GtkWidget *eqlabel8;
 GtkWidget *eqlabel9;
+GtkWidget *eqlabelA;
 
 GtkWidget *eqenable;
 GtkWidget *combopreset;
@@ -867,17 +871,21 @@ void texImage2D(char* buf, int width, int height)
    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLfloat)GL_NEAREST);
    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLfloat)GL_CLAMP_TO_EDGE);
    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLfloat)GL_CLAMP_TO_EDGE);
-   glUniform1i(userData->samplerLoc, 0);
+
     //checkNoGLES2Error();
 }
 
 void redraw_scene(CUBE_STATE_T *state)
 {
+	UserData *userData = p_state->user_data;
+
+   glUniform1i(userData->samplerLoc, 0);
    // Set the viewport
    glViewport(0, 0, state->screen_width, state->screen_height);
    // Clear the color buffer
    glClear(GL_COLOR_BUFFER_BIT);
    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
+   //glFinish();
    eglSwapBuffers(p_state->display, p_state->surface);
 }
 
@@ -911,7 +919,7 @@ struct audioqueue
 };
 struct audioqueue *aq;
 int aqLength;
-const int aqMaxLength = 30;
+const int aqMaxLength = 15;
 pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1135,7 +1143,7 @@ typedef struct biquad
 const float eqfreqs[EQBANDS] = {31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0};
 const char* eqlabels[EQBANDS] = {"31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"};
 struct biquad bqLeft[EQBANDS], bqRight[EQBANDS];
-float eqoctave = 2.0;
+float eqoctave = 1.0;
 pthread_mutex_t eqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 /* Computes a BiQuad filter on a sample */
@@ -1326,10 +1334,14 @@ static void vscale9(GtkWidget *widget, gpointer data)
 	BiQuad_init(HSH, value, eqfreqs[9], (float)rate, eqoctave, &(bqRight[9]));
 }
 
-void BiQuad_initAll(float samplerate, float octave)
+static void vscaleA(GtkWidget *widget, gpointer data)
 {
-	eqoctave = octave;
+    float value = 1.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    printf("Adjustment value: %f\n", value);
+}
 
+void BiQuad_initAll()
+{
 	vscale0(vscaleeq0, NULL);
 	vscale1(vscaleeq1, NULL);
 	vscale2(vscaleeq2, NULL);
@@ -1340,46 +1352,16 @@ void BiQuad_initAll(float samplerate, float octave)
 	vscale7(vscaleeq7, NULL);
 	vscale8(vscaleeq8, NULL);
 	vscale9(vscaleeq9, NULL);
-
-/*
-	BiQuad_init(LSH, 0.0, eqfreqs[0], samplerate, octave, &(bqLeft[0]));
-	BiQuad_init(LSH, 0.0, eqfreqs[0], samplerate, octave, &(bqRight[0]));
-
-	BiQuad_init(PEQ, 0.0, 120.0, samplerate, octave, &(bqLeft[1]));
-	BiQuad_init(PEQ, 0.0, 120.0, samplerate, octave, &(bqRight[1]));
-
-	BiQuad_init(PEQ, 0.0, 250.0, samplerate, octave, &(bqLeft[2]));
-	BiQuad_init(PEQ, 0.0, 250.0, samplerate, octave, &(bqRight[2]));
-
-	BiQuad_init(PEQ, 0.0, 500.0, samplerate, octave, &(bqLeft[3]));
-	BiQuad_init(PEQ, 0.0, 500.0, samplerate, octave, &(bqRight[3]));
-
-	BiQuad_init(PEQ, 0.0, 1000.0, samplerate, octave, &(bqLeft[4]));
-	BiQuad_init(PEQ, 0.0, 1000.0, samplerate, octave, &(bqRight[4]));
-
-	BiQuad_init(PEQ, 0.0, 2000.0, samplerate, octave, &(bqLeft[5]));
-	BiQuad_init(PEQ, 0.0, 2000.0, samplerate, octave, &(bqRight[5]));
-
-	BiQuad_init(PEQ, 0.0, 4000.0, samplerate, octave, &(bqLeft[6]));
-	BiQuad_init(PEQ, 0.0, 4000.0, samplerate, octave, &(bqRight[6]));
-
-	BiQuad_init(PEQ, 0.0, 8000.0, samplerate, octave, &(bqLeft[7]));
-	BiQuad_init(PEQ, 0.0, 8000.0, samplerate, octave, &(bqRight[7]));
-
-	BiQuad_init(PEQ, 0.0, 12000.0, samplerate, octave, &(bqLeft[8]));
-	BiQuad_init(PEQ, 0.0, 12000.0, samplerate, octave, &(bqRight[8]));
-
-	BiQuad_init(HSH, 0.0, eqfreqs[EQBANDS-1], samplerate, octave, &(bqLeft[EQBANDS-1]));
-	BiQuad_init(HSH, 0.0, eqfreqs[EQBANDS-1], samplerate, octave, &(bqRight[EQBANDS-1]));
-*/
 }
 
-void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample, float preampfactor)
+void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample)
 {
 	int a, b;
 	signed short *intp;
 	intp=(signed short *)buf;
+	float preampfactor;
 
+	preampfactor = 1.0 - gtk_range_get_value(vscaleeqA);
 	pthread_mutex_lock(&eqmutex);
 	for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
 	{
@@ -1503,7 +1485,7 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	if (p->dst_data)
 	{
 		if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)))
-			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels, 0.5);
+			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
 		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4);
 		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
 //printf("snd_pcm_writei err:%d\n", err);
@@ -1545,18 +1527,8 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 	struct audioqueue *p;
 	int err;
 
-/*
-	int frameFinished;
-	AVFrame *pFrame = NULL;
-	uint8_t **dst_data = NULL;
-	int line_size;
-	int ret;
-*/
-
 	while(1)
 	{
-		//pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-		//pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 		if ((p = aq_remove(&aq)) == NULL)
 		{
 			break;
@@ -1564,47 +1536,7 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 
 // play 1 period
         err=play_period(handle, p);
-/*
-		if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, p->packet)) < 0)
-		{
-			fprintf(stderr, "Error decoding audio frame\n");
-		}
-		//printf("avcodec_decode_audio4\n");
 
-		if(frameFinished)
-		{
-			ret = av_samples_alloc_array_and_samples(&dst_data, &line_size, pCodecCtxA->channels, pFrame->nb_samples, AV_SAMPLE_FMT_S16, 0);
-			//printf("av_samples_alloc_array_and_samples, %d\n", ret);
-			ret = swr_convert(swr, dst_data, pFrame->nb_samples, pFrame->extended_data, pFrame->nb_samples);
-			if (ret<0) printf("swr_convert error %d\n", ret);
-			//printf("swr_convert, %d", ret);
-			int dst_bufsize = av_samples_get_buffer_size(&line_size, pCodecCtxA->channels, ret, AV_SAMPLE_FMT_S16, 1);
-
-
-			//printf("writing %d\n", dst_bufsize);
-			err = snd_pcm_writei(handle, dst_data[0], dst_bufsize);
-			//printf("snd_pcm_writei err:%d\n", err);
-			if (dst_data)
-				av_freep(&dst_data[0]);
-			av_freep(&dst_data);
-
-			if (err == -EAGAIN)
-			{
-				av_free_packet(p->packet);
-				free(p);
-				continue;
-			}
-			if (err < 0)
-			{
-				if (xrun_recovery(handle, err) < 0)
-				{
-					printf("Write error: %s\n", snd_strerror(err));
-					exit(EXIT_FAILURE);
-				}
-				//break;  // skip one period
-			}
-		}
-*/
 		//pthread_mutex_lock(&seekmutex);
 		//pthread_mutex_unlock(&seekmutex);
 	}
@@ -1852,7 +1784,7 @@ struct videoqueue
 };
 struct videoqueue *vq;
 int vqLength;
-const int vqMaxLength = 15;
+const int vqMaxLength = 10;
 pthread_mutex_t vqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t vqlowcond; // = PTHREAD_COND_INITIALIZER;
 pthread_cond_t vqhighcond; // = PTHREAD_COND_INITIALIZER;
@@ -1972,24 +1904,6 @@ struct videoqueue* vq_remove(struct videoqueue **q)
 	return p;
 }
 
-/*
-void vq_close(struct videoqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
-{
-	struct videoqueue *p;
-
-	pthread_mutex_lock(&vqmutex);
-	while(!q)
-	{
-		p = vq_remove_element(q);
-		vqLength--;
-		av_free_packet(p->packet);
-		free(p);
-	}
-	pthread_mutex_destroy(m);
-	pthread_cond_destroy(cl);
-	pthread_cond_destroy(ch);
-}
-*/
 void vq_drain(struct videoqueue **q)
 {
 	pthread_mutex_lock(&vqmutex);
@@ -2267,7 +2181,7 @@ int open_file(char * filename)
 	//initialize ALSA lib
 	init_sound(pCodecCtxA);
 
-	BiQuad_initAll((float)rate, 2.0);
+	BiQuad_initAll();
 
 	return 0;
 }
@@ -2281,44 +2195,56 @@ gboolean enable_play_button(gpointer data)
 
 gboolean setLevel1(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), *((int*)data));
 	sprintf(leveltext1, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label1), leveltext1);
+	*/
 	return FALSE;
 }
 gboolean setLevel2(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), *((int*)data));
 	sprintf(leveltext2, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label2), leveltext2);
+	*/
 	return FALSE;
 }
 gboolean setLevel3(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), *((int*)data));
 	sprintf(leveltext3, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label3), leveltext3);
+	*/
 	return FALSE;
 }
 gboolean setLevel4(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), *((int*)data));
 	sprintf(leveltext4, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label4), leveltext4);
+	*/
 	return FALSE;
 }
 gboolean setLevel5(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), *((int*)data));
 	sprintf(leveltext5, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label5), leveltext5);
+	*/
 	return FALSE;
 }
 gboolean setLevel6(gpointer data)
 {
+	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), *((int*)data));
 	sprintf(leveltext6, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label6), leveltext6);
+	*/
 	return FALSE;
 }
 
@@ -2587,7 +2513,7 @@ diff3=get_next_time_microseconds();
 
 get_first_time_microseconds();
 		redraw_scene(p_state);
-		glFinish();
+
 diff4=get_next_time_microseconds();
 //printf("%lu usec redraw\n", diff4);
 
@@ -2700,7 +2626,6 @@ static void realize_cb(GtkWidget *widget, gpointer data)
 	g_free(alloc);
 	//printf("Scale height %d\n", scaleheight);
 	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
-
 }
 
 static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
@@ -3251,7 +3176,7 @@ gboolean play_next(gpointer data)
 	return FALSE;
 }
 
-/*
+/* seek to exact packet
 void AV_seek(AV * av, size_t frame)
 {
     int frame_delta = frame - av->frame_id;
@@ -3333,6 +3258,11 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 gchar* scale_valueformat(GtkScale *scale, gdouble value, gpointer user_data)
 {
 	return g_strdup_printf("%0.1f", -value);
+}
+
+gchar* scale_valuepreamp(GtkScale *scale, gdouble value, gpointer user_data)
+{
+	return g_strdup_printf("%0.2f", 1.0-value);
 }
 
 static gboolean delete_event_eq(GtkWidget *widget, GdkEvent *event, gpointer data)
@@ -3450,6 +3380,14 @@ int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColN
 	}
 	gtk_adjustment_set_value(vadj9, -f);
 
+	point2comma(argv[11]);
+	f=strtod(argv[11], &errCheck);
+	if (errCheck == argv[11])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[11], argv[11]);
+	}
+	gtk_adjustment_set_value(vadjA, 1.0-f);
 	return 0;
 }
 
@@ -3484,6 +3422,40 @@ void select_eqpreset(char* id)
 	sqlite3_close(db);
 }
 
+int select_eqpresetnames_callback(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combopreset), argv[0], argv[12]);
+	return 0;
+}
+
+void select_eqpreset_names()
+{
+	sqlite3 *db;
+	char *err_msg = NULL;
+	char* sql;
+	int rc;
+
+	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+	{
+		printf("Can't open database: %s\n", sqlite3_errmsg(db));
+	}
+	else
+	{
+//printf("Opened database successfully\n");
+		sql = "SELECT * FROM eqpresets order by id;";
+		if ((rc = sqlite3_exec(db, sql, select_eqpresetnames_callback, 0, &err_msg)) != SQLITE_OK)
+		{
+			printf("Failed to select data, %s\n", err_msg);
+			sqlite3_free(err_msg);
+		}
+		else
+		{
+// success
+		}
+	}
+	sqlite3_close(db);
+}
+
 static void preset_changed(GtkWidget *combo, gpointer data)
 {
 	gchar *strval;
@@ -3494,9 +3466,15 @@ static void preset_changed(GtkWidget *combo, gpointer data)
 	g_free(strval);
 }
 
+/* Called when the windows are realized */
+static void realize_eq(GtkWidget *widget, gpointer data)
+{
+	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
+}
+
 int main(int argc, char** argv)
 {
-	playerWidth = 800;
+	playerWidth = 720; //800;
 	playerHeight = playerWidth * 9 / 16;
 
 	int dawidth = playerWidth;
@@ -3594,7 +3572,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti1);
 	levelbar1 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), 0.0);
-	gtk_widget_set_size_request(levelbar1, 100, 10);
+	gtk_widget_set_size_request(levelbar1, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar1);
 	gtk_container_add(GTK_CONTAINER(verti1), levelbar1);
 	label1 = gtk_label_new("0");
@@ -3604,7 +3582,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti2);
 	levelbar2 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), 0.0);
-	gtk_widget_set_size_request(levelbar2, 100, 10);
+	gtk_widget_set_size_request(levelbar2, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar2);
 	gtk_container_add(GTK_CONTAINER(verti2), levelbar2);
 	label2 = gtk_label_new("0");
@@ -3614,7 +3592,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti3);
 	levelbar3 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), 0.0);
-	gtk_widget_set_size_request (levelbar3, 100, 10);
+	gtk_widget_set_size_request (levelbar3, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar3);
 	gtk_container_add(GTK_CONTAINER(verti3), levelbar3);
 	label3 = gtk_label_new("0");
@@ -3624,7 +3602,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti4);
 	levelbar4 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), 0.0);
-	gtk_widget_set_size_request(levelbar4, 100, 10);
+	gtk_widget_set_size_request(levelbar4, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar4);
 	gtk_container_add(GTK_CONTAINER(verti4), levelbar4);
 	label4 = gtk_label_new("0");
@@ -3634,7 +3612,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti5);
 	levelbar5 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), 0.0);
-	gtk_widget_set_size_request (levelbar5, 100, 10);
+	gtk_widget_set_size_request (levelbar5, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar5);
 	gtk_container_add(GTK_CONTAINER(verti5), levelbar5);
 	label5 = gtk_label_new("0");
@@ -3644,7 +3622,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(horibox), verti6);
 	levelbar6 = gtk_level_bar_new_for_interval(0.0, 20000.0);
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), 0.0);
-	gtk_widget_set_size_request(levelbar6, 100, 10);
+	gtk_widget_set_size_request(levelbar6, 50, 10);
 	//gtk_container_add(GTK_CONTAINER(horibox), levelbar6);
 	gtk_container_add(GTK_CONTAINER(verti6), levelbar6);
 	label6 = gtk_label_new("0");
@@ -3715,6 +3693,7 @@ int main(int argc, char** argv)
      * as defined above. The data passed to the callback
      * function is NULL and is ignored in the callback function. */
     g_signal_connect (windoweq, "delete-event", G_CALLBACK(delete_event_eq), NULL);
+	g_signal_connect (windoweq, "realize", G_CALLBACK (realize_eq), NULL);
 
     gtk_container_set_border_width (GTK_CONTAINER (windoweq), 2);
 	gtk_widget_set_size_request(window, 100, 100);
@@ -3880,6 +3859,21 @@ int main(int argc, char** argv)
 	eqlabel9 = gtk_label_new(eqlabels[9]);
 	gtk_container_add(GTK_CONTAINER(eqbox9), eqlabel9);
 
+// vertical scale preamp
+    eqboxA = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(eqbox), eqboxA);
+    vadjA = gtk_adjustment_new(0, 0, 1, 0.01, 0.1, 0);
+    vscaleeqA = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadjA));
+    gtk_scale_set_digits(GTK_SCALE(vscaleeqA), 2);
+    g_signal_connect(vscaleeqA, "value-changed", G_CALLBACK(vscaleA), NULL);
+	g_signal_connect(vscaleeqA, "format-value", G_CALLBACK(scale_valuepreamp), NULL);
+    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
+    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
+    gtk_container_add(GTK_CONTAINER(eqboxA), vscaleeqA);
+    gtk_widget_set_size_request(vscaleeqA, 40, 200);
+	eqlabelA = gtk_label_new("Preamp");
+	gtk_container_add(GTK_CONTAINER(eqboxA), eqlabelA);
+
 // horizontal box
     eqbox2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
     gtk_container_add(GTK_CONTAINER(eqvbox), eqbox2);
@@ -3891,15 +3885,19 @@ int main(int argc, char** argv)
 
 // combobox
     combopreset = gtk_combo_box_text_new();
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "0", "Custom");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "1", "Preset 1");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "2", "Preset 2");
+    //gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "0", "Custom");
+    select_eqpreset_names();
     g_signal_connect(GTK_COMBO_BOX(combopreset), "changed", G_CALLBACK(preset_changed), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox2), combopreset);
 
     gtk_widget_show_all(windoweq);
 
-	now_playing = argv[1];
+	if (argc>1)
+	{
+		now_playing = (char *)g_malloc(strlen(argv[1])+1);
+		strcpy(now_playing, argv[1]);
+	}
+
 	button1_clicked(button1, NULL);
 
     /* All GTK applications must have a gtk_main(). Control ends here
