@@ -1,13 +1,17 @@
 #define _GNU_SOURCE
 
+#include <bcm_host.h>
+
 #include <gtk/gtk.h>
-#include <gdk/gdkx.h>
+//#include <gdk/gdkx.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/avutil.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/opt.h>
 #include <libavformat/avformat.h>
+#include <libavresample/avresample.h>
 #include <libswscale/swscale.h>
 #include "libswresample/swresample.h"
 #include <alsa/asoundlib.h>
@@ -53,6 +57,7 @@ cpu_set_t cpu[4];
 
 int64_t videoduration;
 long long usecs; // microseconds
+long long usecs2; // microseconds
 
 int frametime;
 //long diff1, diff2, diff3, diff4, diff5, diff6;
@@ -153,6 +158,32 @@ long get_next_time_microseconds()
     return(delta);
 }
 
+long get_first_time_microseconds_2()
+{
+	long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+	micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+	usecs2 = micros;
+	return(0L);
+}
+
+long get_next_time_microseconds_2()
+{
+    long delta;
+    long long micros;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+    micros = spec.tv_sec * 1.0e6 + round(spec.tv_nsec / 1000); // Convert nanoseconds to microseconds
+    delta = micros - usecs2;
+    usecs2 = micros;
+    return(delta);
+}
+
 void checkNoGLES2Error() 
 {
     int error;
@@ -221,8 +252,8 @@ void init_ogl(CUBE_STATE_T *state)
 
     //p_state->screen_width = pCodecCtx->width;
     //p_state->screen_height = pCodecCtx->height;
-    p_state->screen_width = 1920;
-    p_state->screen_height = 1080;
+    p_state->screen_width = 1280;
+    p_state->screen_height = 720;
 
 	printf("Screen size = %d * %d\n", pCodecCtx->width, pCodecCtx->height);
 
@@ -231,19 +262,13 @@ void init_ogl(CUBE_STATE_T *state)
 
     dst_rect.width = p_state->screen_width;
     dst_rect.height = p_state->screen_height;
-/*
-    dst_rect.width = p_state->screen_width / 2;
-    dst_rect.height = p_state->screen_height / 2;
-*/
+
     src_rect.x = 0;
     src_rect.y = 0;
 
     src_rect.width = p_state->screen_width << 16;
     src_rect.height = p_state->screen_height << 16;
-/*
-    src_rect.width = p_state->screen_width << 15;
-    src_rect.height = p_state->screen_height << 15;
-*/
+
 
     dispman_display = vc_dispmanx_display_open( 0 /* LCD */);
     dispman_update = vc_dispmanx_update_start( 0 );
@@ -518,7 +543,7 @@ int Init(CUBE_STATE_T *p_state)
       "}                                                     \n";
 
    // Load the shaders and get a linked program object
-   userData->programObject = LoadProgram ( vShaderStr, fShaderStr_stpq );
+   userData->programObject = LoadProgram((char *)vShaderStr, (char *)fShaderStr_stpq );
    if (!userData->programObject)
    {
      printf("Load Program %d\n",userData->programObject);
@@ -610,7 +635,7 @@ struct audioqueue
 	AVPacket *packet;
 	uint8_t **dst_data;
 	int dst_bufsize;
-	int label;
+	int64_t label;
 };
 struct audioqueue *aq;
 int aqLength;
@@ -636,7 +661,7 @@ void aq_init(struct audioqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthr
 		printf("cond init failed, %d\n", ret);
 }
 
-void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
+void aq_add(struct audioqueue **q,  AVPacket *packet, int64_t label)
 {
 	struct audioqueue *p;
 
@@ -664,9 +689,11 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
 	}
 	p->packet = packet;
 	p->label = label;
+	p->dst_bufsize = 0;
+	p->dst_data = NULL;
 	aqLength++;
 
-	int frameFinished;
+	int frameFinished = 0;
 	AVFrame *pFrame = NULL;
 	int line_size;
 	int ret;
@@ -674,14 +701,12 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
 	pFrame=av_frame_alloc();
 //printf("av_frame_alloc\n");
 	if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, packet)) < 0)
-	{
-		fprintf(stderr, "Error decoding audio frame\n");
-	}
-	if(frameFinished)
+		printf("Error decoding audio frame\n");
+	if (frameFinished)
 	{
 		ret = av_samples_alloc_array_and_samples(&(p->dst_data), &line_size, pCodecCtxA->channels, pFrame->nb_samples, AV_SAMPLE_FMT_S16, 0);
 //printf("av_samples_alloc_array_and_samples, %d\n", ret);
-		ret = swr_convert(swr, p->dst_data, pFrame->nb_samples, pFrame->extended_data, pFrame->nb_samples);
+		ret = swr_convert(swr, p->dst_data, pFrame->nb_samples, (const uint8_t **)pFrame->extended_data, pFrame->nb_samples);
 		if (ret<0) printf("swr_convert error %d\n", ret);
 		p->dst_bufsize = av_samples_get_buffer_size(&line_size, pCodecCtxA->channels, ret, AV_SAMPLE_FMT_S16, 1);
 	}
@@ -799,7 +824,7 @@ snd_pcm_t *handle;
 signed short *samples;
 snd_pcm_channel_area_t *areas;
 snd_output_t *output = NULL;
-//char *device = "plughw:0,0";	// playback device
+//char *device = "default";	// playback device
 char *device = "plughw:0,0";	// playback device
 unsigned int rate = 44100;		// stream rate
 snd_pcm_format_t format = SND_PCM_FORMAT_S16;	// sample format
@@ -877,6 +902,7 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 
 	//write_status(snd_pcm_state(handle));
 	avail = snd_pcm_avail_update(handle);
+	if (avail);
 	//printf("avail: %d\n", avail);
 	//printf("audio playing %d\n", p->label);
 
@@ -940,7 +966,7 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 
 // play 1 period
         err=play_period(handle, p);
-
+		if (err);
 /*
 		if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, p->packet)) < 0)
 		{
@@ -1064,7 +1090,7 @@ static int set_hwparams(snd_pcm_t *handle, snd_pcm_hw_params_t *params, snd_pcm_
 */
         err = snd_pcm_hw_params_set_buffer_size(handle, params, bufsize);
         if (err < 0) {
-                printf("Unable to set buffer size %i for playback: %s\n", buffer_size, snd_strerror(err));
+                printf("Unable to set buffer size %i for playback: %s\n", (int)buffer_size, snd_strerror(err));
                 return err;
         }
 
@@ -1446,7 +1472,7 @@ int open_file(char * filename)
 		return -1; // Codec not found
 	}
   
-    pCodecCtx->thread_count = 3;
+    pCodecCtx->thread_count = 4;
     // Open codec
 	if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		return -1; // Could not open video codec
@@ -1535,15 +1561,15 @@ static gpointer read_frames(gpointer args)
 //get_first_time_microseconds_2();
     while (av_read_frame(pFormatCtx, packet)>=0)
     {
-//diff1=get_next_time_microseconds_2();
-//printf("%lu usec av_read_frame\n", diff);
+//long diff1=get_next_time_microseconds_2();
+//printf("%lu usec av_read_frame\n", diff1);
 		if (packet->stream_index==videoStream) 
 		{
 //printf("videoStream %d\n", j); printf("vqlength %d\n", vqLength);
 //get_first_time_microseconds_2();
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
-//diff2=get_next_time_microseconds_2();
-//printf("%lu usec avcodec_decode_video2\n", diff);
+//long diff2=get_next_time_microseconds_2();
+//printf("%lu usec avcodec_decode_video2\n", diff2);
 
 			if (frameFinished)
 			{
@@ -1674,7 +1700,7 @@ void* videoPlayFromQueue(void *arg)
 			diff-=frametime;
 			if (diff<0)
 			{
-				usleep(0-diff);
+				//usleep(0-diff);
 				diff = 0;
 			}
 //printf("skip %d\n", p->label);
@@ -1689,18 +1715,21 @@ void* videoPlayFromQueue(void *arg)
 			continue;
 		}
 
-		get_first_time_microseconds();
-
+//get_first_time_microseconds();
 		texImage2D(p->rgba, width/4, height*3/2);
+//long diff=get_next_time_microseconds();
+//printf("%lu usec texImage2D\n", diff);
+
+//get_first_time_microseconds();
 		redraw_scene(p_state);
 		glFinish();
-
-		long diff=get_next_time_microseconds();
+//diff=get_next_time_microseconds();
+//printf("%lu usec redraw\n", diff);
 
 		diff -= frametime - 1000;
 		if (diff<0)
 		{
-			usleep(0-diff);
+			//usleep(0-diff);
 			diff = 0;
 		}
 

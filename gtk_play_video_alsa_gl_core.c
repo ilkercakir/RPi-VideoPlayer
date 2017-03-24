@@ -5,10 +5,12 @@ Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags
 */
 /*
 To Do
-1) gtk 3.18 / wayland
+1) gdk_cairo_draw_from_gl() // since 3.16
 */
 
 #define _GNU_SOURCE
+
+#include <bcm_host.h>
 
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
@@ -19,9 +21,11 @@ To Do
 #include <libavutil/pixfmt.h>
 #include <libavutil/avutil.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/opt.h>
 #include <libavformat/avformat.h>
+#include <libavresample/avresample.h>
 #include <libswscale/swscale.h>
-#include "libswresample/swresample.h"
+#include <libswresample/swresample.h>
 #include <alsa/asoundlib.h>
 
 #include <time.h>
@@ -184,11 +188,12 @@ cpu_set_t cpu[4];
 
 int playerWidth, playerHeight;
 int frametime;
-double frame_rate;
-int now_playing_frame;
-int now_decoding_frame;
+double frame_rate, sample_rate;
+int64_t now_playing_frame;
+int64_t now_decoding_frame;
 int hscaleupd;
 int64_t videoduration;
+int64_t audioduration;
 
 long long usecs; // microseconds
 long long usecs1; // microseconds
@@ -471,6 +476,7 @@ void init_ogl2(CUBE_STATE_T *state)
     EGLBoolean result;
     EGLint num_config;
 
+/*
     static const EGLint attribute_list[] =
 	{
 	    EGL_RED_SIZE, 8,
@@ -479,6 +485,17 @@ void init_ogl2(CUBE_STATE_T *state)
 	    EGL_ALPHA_SIZE, 0,
 	    EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
 	    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT | EGL_OPENVG_BIT,
+	    EGL_NONE
+	};
+*/
+    static const EGLint attribute_list[] =
+	{
+	    EGL_RED_SIZE, 8,
+	    EGL_GREEN_SIZE, 8,
+	    EGL_BLUE_SIZE, 8,
+	    EGL_ALPHA_SIZE, 0,
+	    EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+	    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 	    EGL_NONE
 	};
 
@@ -779,7 +796,7 @@ int Init(CUBE_STATE_T *p_state)
       "}                                                     \n";
 
    // Load the shaders and get a linked program object
-   userData->programObject = LoadProgram ( vShaderStr, fShaderStr_stpq );
+   userData->programObject = LoadProgram ((char *)vShaderStr, (char *)fShaderStr_stpq );
    if (!userData->programObject)
    {
      printf("Load Program %d\n",userData->programObject);
@@ -889,23 +906,6 @@ void redraw_scene(CUBE_STATE_T *state)
    eglSwapBuffers(p_state->display, p_state->surface);
 }
 
-GMutex mutex_gtkimage;
-
-gboolean update_frame_gtk(gpointer data)
-{
-	g_mutex_lock(&mutex_gtkimage);
-	gtk_image_set_from_pixbuf((GtkImage*) image, pixbuf);
-	g_mutex_unlock(&mutex_gtkimage);
-	return(G_SOURCE_REMOVE);
-}
-
-/*
-static void pixmap_destroy_notify(guchar *pixels, gpointer data)
-{
-    //printf("Destroy pixmap - not sure how\n");
-}
-*/
-
 
 // Audio
 struct audioqueue
@@ -915,7 +915,7 @@ struct audioqueue
 	AVPacket *packet;
 	uint8_t **dst_data;
 	int dst_bufsize;
-	int label;
+	int64_t label;
 };
 struct audioqueue *aq;
 int aqLength;
@@ -941,7 +941,7 @@ void aq_init(struct audioqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthr
 		printf("cond init failed, %d\n", ret);
 }
 
-void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
+void aq_add(struct audioqueue **q,  AVPacket *packet, int64_t label)
 {
 	struct audioqueue *p;
 
@@ -969,9 +969,11 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
 	}
 	p->packet = packet;
 	p->label = label;
+	p->dst_bufsize = 0;
+	p->dst_data = NULL;
 	aqLength++;
 
-	int frameFinished;
+	int frameFinished = 0;
 	AVFrame *pFrame = NULL;
 	int line_size;
 	int ret;
@@ -979,16 +981,15 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int label)
 	pFrame=av_frame_alloc();
 //printf("av_frame_alloc\n");
 	if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, packet)) < 0)
-	{
-		fprintf(stderr, "Error decoding audio frame\n");
-	}
-	if(frameFinished)
+		printf("Error decoding audio frame\n");
+	if (frameFinished)
 	{
 		ret = av_samples_alloc_array_and_samples(&(p->dst_data), &line_size, pCodecCtxA->channels, pFrame->nb_samples, AV_SAMPLE_FMT_S16, 0);
 //printf("av_samples_alloc_array_and_samples, %d\n", ret);
-		ret = swr_convert(swr, p->dst_data, pFrame->nb_samples, pFrame->extended_data, pFrame->nb_samples);
+		ret = swr_convert(swr, p->dst_data, pFrame->nb_samples, (const uint8_t **)pFrame->extended_data, pFrame->nb_samples);
 		if (ret<0) printf("swr_convert error %d\n", ret);
-		p->dst_bufsize = av_samples_get_buffer_size(&line_size, pCodecCtxA->channels, ret, AV_SAMPLE_FMT_S16, 1);
+		p->dst_bufsize = av_samples_get_buffer_size(NULL, pCodecCtxA->channels, ret, AV_SAMPLE_FMT_S16, 0);
+//printf("bufsize=%d\n", p->dst_bufsize);
 	}
 	av_frame_free(&pFrame);
 //printf("av_frame_free");
@@ -1077,6 +1078,7 @@ void aq_close(struct audioqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pth
 	pthread_cond_destroy(ch);
 }
 */
+
 void aq_drain(struct audioqueue **q)
 {
 	pthread_mutex_lock(&aqmutex);
@@ -1106,8 +1108,8 @@ snd_pcm_t *handle;
 signed short *samples;
 snd_pcm_channel_area_t *areas;
 snd_output_t *output = NULL;
-//char *device = "plughw:0,0";	// playback device
-char *device = "default";	// playback device
+char *device = "plughw:0,0";	// playback device
+//char *device = "default";	// playback device
 unsigned int rate = 44100;		// stream rate
 snd_pcm_format_t format = SND_PCM_FORMAT_S16;	// sample format
 unsigned int channels = 2;		// count of channels
@@ -1137,7 +1139,7 @@ typedef struct biquad
 {
    float a0, a1, a2, a3, a4;
    float x1, x2, y1, y2;
-};
+}biquadtype;
 
 #define EQBANDS 10
 const float eqfreqs[EQBANDS] = {31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0};
@@ -1145,6 +1147,7 @@ const char* eqlabels[EQBANDS] = {"31", "62", "125", "250", "500", "1K", "2K", "4
 struct biquad bqLeft[EQBANDS], bqRight[EQBANDS];
 float eqoctave = 1.0;
 pthread_mutex_t eqmutex; // = PTHREAD_MUTEX_INITIALIZER;
+int eqenabled = 1;
 
 /* Computes a BiQuad filter on a sample */
 inline float BiQuad(float sample, struct biquad *b)
@@ -1238,7 +1241,7 @@ void BiQuad_init(int type, float dbGain, float freq, float srate, float bandwidt
        break;
    }
 
-	pthread_mutex_lock(&eqmutex);
+   pthread_mutex_lock(&eqmutex);
 
    /* precompute the coefficients */
    b->a0 = b0 /a0;
@@ -1336,8 +1339,15 @@ static void vscale9(GtkWidget *widget, gpointer data)
 
 static void vscaleA(GtkWidget *widget, gpointer data)
 {
-    float value = 1.0 - gtk_range_get_value(GTK_RANGE(widget));
+//    float value = 1.0 - gtk_range_get_value(GTK_RANGE(widget));
 //    printf("Adjustment value: %f\n", value);
+}
+
+gboolean update_hscale(gpointer data)
+{
+	if (hscaleupd)
+		gtk_adjustment_set_value(hadjustment, now_playing_frame);
+	return FALSE;
 }
 
 void BiQuad_initAll()
@@ -1361,42 +1371,45 @@ void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample)
 	intp=(signed short *)buf;
 	float preampfactor;
 
-	preampfactor = 1.0 - gtk_range_get_value(vscaleeqA);
 	pthread_mutex_lock(&eqmutex);
-	for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
+	if (eqenabled)
 	{
-		intp[b] *= preampfactor;
-		intp[b+1] *= preampfactor;
+		preampfactor = 1.0 - gtk_range_get_value((GtkRange*)vscaleeqA);
+		for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
+		{
+			intp[b] *= preampfactor;
+			intp[b+1] *= preampfactor;
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[0]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[0]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[0]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[0]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[1]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[1]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[1]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[1]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[2]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[2]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[2]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[2]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[3]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[3]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[3]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[3]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[4]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[4]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[4]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[4]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[5]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[5]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[5]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[5]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[6]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[6]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[6]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[6]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[7]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[7]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[7]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[7]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[8]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[8]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[8]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[8]));
 
-		intp[b] = BiQuad(intp[b], &(bqLeft[9]));
-		intp[b+1] = BiQuad(intp[b+1], &(bqRight[9]));
+			intp[b] = BiQuad(intp[b], &(bqLeft[9]));
+			intp[b+1] = BiQuad(intp[b+1], &(bqRight[9]));
+		}
 	}
 	pthread_mutex_unlock(&eqmutex);
 }
@@ -1461,36 +1474,32 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 int play_period(snd_pcm_t *handle, struct audioqueue *p)
 {
 	snd_pcm_sframes_t avail;
-	int err;
+	int err, framecount;
 
 	//printf("Audio %d\n", gettid());
 	//write_status(snd_pcm_state(handle));
 	avail = snd_pcm_avail_update(handle);
-	//printf("avail: %d\n", avail);
-	//printf("audio playing %d\n", p->label);
-
-/*
-	if (playerstatus == draining)
-	{
-		printf("draining\n");
-		if (p->dst_data)
-		{
-			printf("writing %d, data %d\n", p->dst_bufsize, p->dst_data[0]);
-		}
-		else
-			printf("p->dst_data NULL\n");
-	}
-*/
+	if (avail);
+//printf("avail: %d audio playing %lld, bufsize %d\n", (int)avail, p->label, p->dst_bufsize);
 
 	if (p->dst_data)
 	{
-		if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)))
-			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
-		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4);
-		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
-//printf("snd_pcm_writei err:%d\n", err);
+		BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
+		framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
+//printf("framecount %d\n", framecount);
+		if (framecount)
+			err = snd_pcm_writei(handle, p->dst_data[0], framecount);
+//printf("snd_pcm_writei: %d\n", err);
 
-		av_freep(&(p->dst_data[0]));
+		if (videoStream==-1)
+		{
+			now_playing_frame += framecount;
+			if (!(p->label%10))
+				gdk_threads_add_idle(update_hscale, NULL);
+		}
+
+		if (p->dst_data[0])
+			av_freep(&(p->dst_data[0]));
 //printf("av_freep dst_data0\n");
 
 		av_freep(&(p->dst_data));
@@ -1499,14 +1508,12 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	else
 		err = 0;
 
-	//av_free_packet(p->packet);
 	av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
 	free(p);
 
 	if (err == -EAGAIN)
 	{
-		//continue;
 		printf("EAGAIN\n");
 		return err;
 	}
@@ -1517,7 +1524,6 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 			printf("Write error: %s\n", snd_strerror(err));
 			//exit(EXIT_FAILURE);
 		}
-		//break;  // skip one period
 	}
 	return err;
 }
@@ -1536,9 +1542,7 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 
 // play 1 period
         err=play_period(handle, p);
-
-		//pthread_mutex_lock(&seekmutex);
-		//pthread_mutex_unlock(&seekmutex);
+        if (err);
 	}
 	return(0);
 }
@@ -1712,7 +1716,8 @@ int init_sound(AVCodecContext *ctx)
 	unsigned int chn;
 
 	rate = ctx->sample_rate;
-	channels = ctx->channels;
+	//channels = (ctx->channels>2?2:ctx->channels); // use when device = "default"
+	channels = ctx->channels; // use when device = "plughw:0,0"
 
 	snd_pcm_hw_params_alloca(&hwparams);
 	snd_pcm_sw_params_alloca(&swparams);
@@ -1780,7 +1785,7 @@ struct videoqueue
 	struct videoqueue *next;
 	AVPacket *packet;
 	char *rgba; // y,u,v byte arrays concatenated
-	int label;
+	int64_t label;
 };
 struct videoqueue *vq;
 int vqLength;
@@ -1806,7 +1811,7 @@ void vq_init(struct videoqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthr
 		printf("cond init failed, %d\n", ret);
 }
 
-void vq_add(struct videoqueue **q,  AVPacket *packet, char *rgba, int label)
+void vq_add(struct videoqueue **q,  AVPacket *packet, char *rgba, int64_t label)
 {
 	struct videoqueue *p;
 
@@ -1972,13 +1977,6 @@ void list_uniforms_of_program()
 	}
 }
 
-gboolean update_hscale(gpointer data)
-{
-	if (hscaleupd)
-		gtk_adjustment_set_value(hadjustment, now_playing_frame);
-	return FALSE;
-}
-
 char* strreplace(char *src, char *search, char *replace)
 {
 	char *p;
@@ -2100,7 +2098,7 @@ int open_file(char * filename)
 			return -1; // Codec not found
 		}
 
-		pCodecCtx->thread_count = 2;
+		pCodecCtx->thread_count = 4;
 		// Open codec
 		if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		{
@@ -2108,11 +2106,6 @@ int open_file(char * filename)
 			return -1; // Could not open video codec
 		}
 
-		//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
-/*
-		sws_context = sws_getCachedContext(sws_context, frame->width, frame->height, AV_PIX_FMT_YUV420P, frame2->width, frame2->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
-		sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
-*/
 		AVStream *st = pFormatCtx->streams[videoStream];
 		if (st->avg_frame_rate.den)
 		{
@@ -2127,7 +2120,7 @@ int open_file(char * filename)
 //printf("Frame rate = %2.2f\n", frame_rate);
 //printf("frametime = %d usec\n", frametime);
 //printf("Width : %d, Height : %d\n", pCodecCtx->width, pCodecCtx->height);
-		videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate;
+		videoduration = (pFormatCtx->duration / AV_TIME_BASE) * frame_rate; // in frames
 	}
 
 	audioStream = -1;
@@ -2171,11 +2164,19 @@ int open_file(char * filename)
 		av_opt_set_int(swr, "out_channel_layout", pCodecCtxA->channel_layout,  0);
 		av_opt_set_int(swr, "in_sample_rate",     pCodecCtxA->sample_rate, 0);
 		av_opt_set_int(swr, "out_sample_rate",    pCodecCtxA->sample_rate, 0);
-		//av_opt_set_sample_fmt(swr, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
 		av_opt_set_sample_fmt(swr, "in_sample_fmt",  pCodecCtxA->sample_fmt, 0);
 
 		av_opt_set_sample_fmt(swr, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
 		swr_init(swr);
+
+		sample_rate = pCodecCtxA->sample_rate;
+		audioduration = (pFormatCtx->duration / AV_TIME_BASE) * sample_rate; // in samples
+		//printf("audio frame count %lld\n", audioduration);
+/*
+		int64_t last_ts = pFormatCtx->duration / AV_TIME_BASE;
+		last_ts = (last_ts * (pFormatCtx->streams[audioStream]->time_base.den)) / (pFormatCtx->streams[audioStream]->time_base.num);
+		printf("timebase last_ts %lld\n", last_ts);
+*/
 	}
 
 	//initialize ALSA lib
@@ -2267,12 +2268,13 @@ static gpointer read_frames(gpointer args)
 	int ctype_old;
 	pthread_setcanceltype(ctype, &ctype_old);
 
-    int frameFinished;
+    int frameFinished, i;
+
+//printf("starting read_frames\n");
     AVFrame *pFrame = NULL;
     pFrame=av_frame_alloc();
 
     /* initialize packet, set data to NULL, let the demuxer fill it */
-    /* http://ffmpeg.org/doxygen/trunk/doc_2examples_2demuxing_8c-example.html#a80 */
     AVPacket *packet;
 
     packet=av_malloc(sizeof(AVPacket));
@@ -2281,8 +2283,8 @@ static gpointer read_frames(gpointer args)
     packet->data = NULL;
     packet->size = 0;
 
-	now_decoding_frame = 0;
-    int fnum, i=0;
+	now_decoding_frame = now_playing_frame = 0;
+    int64_t fnum, aperiod=0;
 
 	char *rgba;
 
@@ -2326,7 +2328,7 @@ diff2=get_next_time_microseconds_2();
 		else if (packet->stream_index==audioStream)
 		{
 //printf("audioStream %d\n", i); printf("aqlength %d\n", aqLength);
-			aq_add(&aq, packet, i++);
+			aq_add(&aq, packet, aperiod++);
 
 			pthread_mutex_lock(&seekmutex);
 			pthread_mutex_unlock(&seekmutex);
@@ -2338,17 +2340,18 @@ diff2=get_next_time_microseconds_2();
 		packet->size = 0;
 get_first_time_microseconds_2();
 
-		//pthread_mutex_lock(&seekmutex);
-		//pthread_mutex_unlock(&seekmutex);
 	}
-	//avcodec_close(pCodec);
-	//avcodec_close(pCodecA);
 
 	av_frame_free(&pFrame);
 //printf("av_frame_free\n");
 
 	av_packet_unref(packet);
 //printf("av_packet_unref\n");
+
+	if (videoStream!=-1)
+		avcodec_flush_buffers(pCodecCtx);
+	if (audioStream!=-1)
+		avcodec_flush_buffers(pCodecCtxA);
 
 	avformat_close_input(&pFormatCtx);
 	avformat_network_deinit();
@@ -2365,11 +2368,11 @@ get_first_time_microseconds_2();
 	aq_drain(&aq);
 
 	if (audioStream!=-1)
-		i=pthread_join(tid[0], NULL);
-//printf("join 0 %d\n", i);
+		if ((i=pthread_join(tid[0], NULL)))
+			printf("pthread_join error, tid[0], %d\n", i);
 	if (videoStream!=-1)
-		i=pthread_join(tid[1], NULL);
-//printf("join 1 %d\n", i);
+		if ((i=pthread_join(tid[1], NULL)))
+			printf("pthread_join error, tid[1], %d\n", i);
 
 	aq_destroy(&aqmutex, &aqlowcond, &aqhighcond);
 	vq_destroy(&vqmutex, &vqlowcond, &vqhighcond);
@@ -2401,9 +2404,9 @@ void* audioPlayFromQueue(void *arg)
 	int ctype_old;
 	pthread_setcanceltype(ctype, &ctype_old);
 
+//printf("starting audioPlayFromQueue\n");
 	if((err = transfer_methods[method].transfer_loop(handle, samples, areas)) < 0)
 		printf("Transfer failed: %s\n", snd_strerror(err));
-
 //printf("exiting audioPlayFromQueue\n");
 	retval_audio = 0;
 	pthread_exit((void*)&retval_audio);
@@ -2445,12 +2448,13 @@ void* videoPlayFromQueue(void *arg)
 {
 	struct videoqueue *p;
 	UserData *userData;
-	long diff;
+	long diff = 0;
 
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
 	int ctype_old;
 	pthread_setcanceltype(ctype, &ctype_old);
 
+//printf("starting videoPlayFromQueue\n");
     bcm_host_init();
 
     //init_ogl(p_state); // Render to screen
@@ -2468,14 +2472,12 @@ void* videoPlayFromQueue(void *arg)
 
 	initPixbuf(p_state->screen_width, p_state->screen_height);
 	userData->outrgb = (char*)gdk_pixbuf_get_pixels(pixbuf);
-	//char *imgdata = malloc(p_state->screen_width*p_state->screen_height*4);
 
 	GLfloat picSize[2] = { (GLfloat)width, (GLfloat)height*3/2 };
 	glUniform2fv(userData->sizeLoc, 1, picSize);
 	GLfloat yuv2rgbmatrix[9] = { 1.0, 0.0, 1.5958, 1.0, -0.3917, -0.8129, 1.0, 2.017, 0.0 };
 	glUniformMatrix3fv(userData->cmatrixLoc, 1, FALSE, yuv2rgbmatrix);
 
-	diff = 0;
 	while (1)
 	{
 		if ((p = vq_remove(&vq)) == NULL)
@@ -2494,7 +2496,7 @@ void* videoPlayFromQueue(void *arg)
 				usleep(0-diff);
 				diff = 0;
 			}
-//printf("skip %d\n", p->label);
+printf("skip %lld\n", p->label);
 
 			free(p->rgba);
 //printf("free rgba\n");
@@ -2523,13 +2525,6 @@ get_first_time_microseconds();
 		glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
 		g_mutex_unlock(&pixbufmutex);
 
-/*
-		glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, imgdata);
-		g_mutex_lock(&pixbufmutex);
-		memcpy(userData->outrgb, imgdata, p_state->screen_width*p_state->screen_height*4);
-		g_mutex_unlock(&pixbufmutex);
-*/
-
 diff5=get_next_time_microseconds();
 //printf("%lu usec glReadPixels\n", diff5);
 
@@ -2543,9 +2538,6 @@ diff5=get_next_time_microseconds();
 			gdk_threads_add_idle(update_hscale, NULL);
 		}
 
-/*
-		gdk_cairo_draw_from_gl() // since 3.16
-*/
 		free(p->rgba);
 //printf("free rgba\n");
 		av_packet_unref(p->packet);
@@ -2562,11 +2554,9 @@ diff5=get_next_time_microseconds();
 			usleep(0-diff);
 			diff = 0;
 		}
-		//pthread_mutex_lock(&seekmutex);
-		//pthread_mutex_unlock(&seekmutex);
 
+		gdk_threads_add_idle(invalidate, NULL);
 	}
-	//free(imgdata);
 	exit_func();
 
 //printf("exiting videoPlayFromQueue\n");
@@ -2725,10 +2715,13 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	{
 		playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
 		gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
-//printf("gtk_widget_set_size\n");
+		gtk_adjustment_set_upper(hadjustment, videoduration);
+	}
+	else
+	{
+		gtk_adjustment_set_upper(hadjustment, audioduration);
 	}
 
-	gtk_adjustment_set_upper(hadjustment, videoduration);
 	gtk_adjustment_set_value(hadjustment, 0);
 
 	hscaleupd = TRUE;
@@ -2867,25 +2860,28 @@ void listview_onRowActivated(GtkTreeView *treeview, GtkTreePath *path, GtkTreeVi
 {
 	GtkTreeModel *model;
 	GtkTreeIter iter;
-	gchar *s;
+	//gchar *s;
 
-	//g_print("double-clicked\n");
+//g_print("double-clicked\n");
 	model = gtk_tree_view_get_model(treeview);
 	if (gtk_tree_model_get_iter(model, &iter, path))
 	{
-		s=gtk_tree_path_to_string(path);
+		//s=gtk_tree_path_to_string(path);
 		//printf("%s\n",s);
-		g_free(s);
+		//g_free(s);
 		if (!(playerstatus == idle))
 		{
 			button2_clicked(button2, NULL);
 			while(!(playerstatus == idle))
 				usleep(100000); // 0.1s
 		}
-		if (now_playing) g_free(now_playing);
+		if (now_playing)
+		{
+			g_free(now_playing);
+			now_playing = NULL;
+		}
 		gtk_tree_model_get(model, &iter, COL_FILEPATH, &now_playing, -1);
-		//g_print ("Double-clicked path %s\n", now_playing);
-
+//g_print ("Double-clicked path %s\n", now_playing);
 		button1_clicked(button1, NULL);
 	}
 }
@@ -3168,7 +3164,11 @@ gboolean play_next(gpointer data)
 		}
 	}
 
-	if (now_playing) g_free(now_playing);
+	if (now_playing)
+	{
+		g_free(now_playing);
+		now_playing = NULL;
+	}
 	gtk_tree_model_get(model, &iter, COL_FILEPATH, &now_playing, -1);
 	//g_print("Next %s\n", now_playing);
 
@@ -3219,6 +3219,8 @@ gboolean scale_pressed(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 
 gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
+	int64_t seek_ts;
+
 	double value = gtk_range_get_value(GTK_RANGE(widget));
 //printf("Released value: %f\n", value);
 
@@ -3230,7 +3232,7 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 			double seektime = value / frame_rate; // seconds
 //printf("Seek time %5.2f\n", seektime);
 			int flgs = AVSEEK_FLAG_ANY;
-			int seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
+			seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
 			if (av_seek_frame(pFormatCtx, videoStream, seek_ts, flgs) < 0)
 			{
 				printf("Failed to seek Video\n");
@@ -3238,15 +3240,36 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 			else
 			{
 				avcodec_flush_buffers(pCodecCtx);
-				avcodec_flush_buffers(pCodecCtxA);
+				if (audioStream!=-1)
+					avcodec_flush_buffers(pCodecCtxA);
 
 				vq_drain(&vq);
 				aq_drain(&aq);
 			}
 
 			pthread_mutex_lock(&framemutex);
-			now_decoding_frame = (int)value;
+			now_decoding_frame = (int64_t)value;
 			pthread_mutex_unlock(&framemutex);
+		}
+		else
+		{
+			AVStream *st = pFormatCtx->streams[audioStream];
+			double seektime = value / sample_rate; // seconds
+//printf("Seek time %5.2f\n", seektime);
+			int flgs = AVSEEK_FLAG_ANY;
+			seek_ts = (seektime * (st->time_base.den)) / (st->time_base.num);
+//printf("seek_ts %lld\n", seek_ts);
+			if (av_seek_frame(pFormatCtx, audioStream, seek_ts, flgs) < 0)
+			{
+				printf("Failed to seek Audio\n");
+			}
+			else
+			{
+				avcodec_flush_buffers(pCodecCtxA);
+				vq_drain(&vq);
+				aq_drain(&aq);
+			}
+			now_playing_frame = (int64_t)value;
 		}
 
 		hscaleupd = TRUE;
@@ -3466,6 +3489,14 @@ static void preset_changed(GtkWidget *combo, gpointer data)
 	g_free(strval);
 }
 
+static void eq_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	pthread_mutex_lock(&eqmutex);
+	eqenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	pthread_mutex_unlock(&eqmutex);
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)));
+}
+
 /* Called when the windows are realized */
 static void realize_eq(GtkWidget *widget, gpointer data)
 {
@@ -3474,7 +3505,7 @@ static void realize_eq(GtkWidget *widget, gpointer data)
 
 int main(int argc, char** argv)
 {
-	playerWidth = 720; //800;
+	playerWidth = 800;
 	playerHeight = playerWidth * 9 / 16;
 
 	int dawidth = playerWidth;
@@ -3881,6 +3912,7 @@ int main(int argc, char** argv)
 // checkbox
 	eqenable = gtk_check_button_new_with_label("EQ Enable");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(eqenable), TRUE);
+	g_signal_connect(GTK_TOGGLE_BUTTON(eqenable), "toggled", G_CALLBACK(eq_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(eqbox2), eqenable);
 
 // combobox
