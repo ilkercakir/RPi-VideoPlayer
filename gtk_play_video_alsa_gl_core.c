@@ -1,6 +1,6 @@
 /*
 Using Geany Editor
-Compie with gcc -Wall -c "%f" -DUSE_OPENGL -DUSE_EGL -DIS_RPI -DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -g -ftree-vectorize -pipe -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi $(pkg-config --cflags gtk+-3.0) -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads -I/opt/vc/include/interface/vmcs_host/linux -Wno-deprecated-declarations
+Compile with gcc -Wall -c "%f" -DUSE_OPENGL -DUSE_EGL -DIS_RPI -DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -g -ftree-vectorize -pipe -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi $(pkg-config --cflags gtk+-3.0) -I/opt/vc/include/ -I/opt/vc/include/interface/vcos/pthreads -I/opt/vc/include/interface/vmcs_host/linux -Wno-deprecated-declarations
 Link with gcc -Wall -o "%e" "%f" -D_POSIX_C_SOURCE=199309L $(pkg-config --cflags gtk+-3.0) -Wl,--whole-archive -I/opt/vc/include -L/opt/vc/lib/ -lGLESv2 -lEGL -lbcm_host -lvchiq_arm -lpthread -lrt -ldl -lm -Wl,--no-whole-archive -rdynamic $(pkg-config --libs gtk+-3.0) $(pkg-config --libs libavcodec libavformat libavutil libswscale) -lasound $(pkg-config --libs sqlite3)
 */
 /*
@@ -61,6 +61,9 @@ GtkWidget *horibox;
 GtkWidget *button_box;
 GtkWidget *button1;
 GtkWidget *button2;
+GtkWidget *button8;
+GtkWidget *buttonEQshowhide;
+GtkWidget *buttonParameters;
 GtkWidget *dwgarea;
 GtkAdjustment *hadjustment;
 GtkWidget *hscale;
@@ -85,18 +88,14 @@ GtkWidget *levelbar3;
 GtkWidget *levelbar4;
 GtkWidget *levelbar5;
 GtkWidget *levelbar6;
-GtkWidget *verti1;
+GtkWidget *levelbar7;
 GtkWidget *label1;
-GtkWidget *verti2;
 GtkWidget *label2;
-GtkWidget *verti3;
 GtkWidget *label3;
-GtkWidget *verti4;
 GtkWidget *label4;
-GtkWidget *verti5;
 GtkWidget *label5;
-GtkWidget *verti6;
 GtkWidget *label6;
+GtkWidget *label7;
 GtkWidget *statusbar;
 gint context_id;
 GtkWidget *windoweq;
@@ -147,9 +146,36 @@ GtkWidget *eqlabel7;
 GtkWidget *eqlabel8;
 GtkWidget *eqlabel9;
 GtkWidget *eqlabelA;
-
 GtkWidget *eqenable;
 GtkWidget *combopreset;
+GtkWidget *windowparm;
+GtkWidget *parmvbox;
+GtkWidget *parmhbox1;
+GtkWidget *parmlabel1;
+GtkWidget *spinbutton1;
+GtkWidget *parmhbox2;
+GtkWidget *parmlabel2;
+GtkWidget *spinbutton2;
+GtkWidget *parmhbox3;
+GtkWidget *parmlabel3;
+GtkWidget *spinbutton3;
+GtkWidget *parmhbox4;
+GtkWidget *parmlabel4;
+GtkWidget *spinbutton4;
+GtkWidget *parmhlevel1;
+GtkWidget *levellabel1;
+GtkWidget *parmhlevel2;
+GtkWidget *levellabel2;
+GtkWidget *parmhlevel3;
+GtkWidget *levellabel3;
+GtkWidget *parmhlevel4;
+GtkWidget *levellabel4;
+GtkWidget *parmhlevel5;
+GtkWidget *levellabel5;
+GtkWidget *parmhlevel6;
+GtkWidget *levellabel6;
+GtkWidget *parmhlevel7;
+GtkWidget *levellabel7;
 
 char leveltext1[10];
 char leveltext2[10];
@@ -157,6 +183,7 @@ char leveltext3[10];
 char leveltext4[10];
 char leveltext5[10];
 char leveltext6[10];
+char leveltext7[10];
 
 GMutex pixbufmutex;
 
@@ -169,6 +196,7 @@ int audioStream;
 struct SwsContext *sws_ctx = NULL;
 AVCodec *pCodec = NULL;
 AVCodec *pCodecA = NULL;
+int thread_count = 4;
 
 SwrContext *swr;
 
@@ -200,6 +228,7 @@ long long usecs1; // microseconds
 long long usecs2; // microseconds
 
 long diff1, diff2, diff3, diff4, diff5, diff6;
+float diff7;
 // read, decode, tex2d, draw, glread, cairo
 
 typedef struct
@@ -650,7 +679,7 @@ GLuint LoadProgram ( const char *vertShaderSrc, const char *fragShaderSrc )
          glGetProgramInfoLog ( programObject, infoLen, NULL, infoLog );
          fprintf (stderr, "Error linking program:\n%s\n", infoLog );            
 
-         free ( infoLog );
+         free(infoLog);
       }
 
       glDeleteProgram ( programObject );
@@ -917,12 +946,12 @@ struct audioqueue
 	int dst_bufsize;
 	int64_t label;
 };
-struct audioqueue *aq;
+struct audioqueue *aq = NULL;
 int aqLength;
-const int aqMaxLength = 15;
-pthread_mutex_t aqmutex; // = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t aqlowcond; // = PTHREAD_COND_INITIALIZER;
-pthread_cond_t aqhighcond; // = PTHREAD_COND_INITIALIZER;
+int aqMaxLength = 15;
+pthread_mutex_t aqmutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t aqlowcond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t aqhighcond = PTHREAD_COND_INITIALIZER;
 
 void aq_init(struct audioqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
 {
@@ -930,6 +959,10 @@ void aq_init(struct audioqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthr
 
 	*q = NULL;
 	aqLength = 0;
+
+	pthread_mutex_destroy(m);
+	pthread_cond_destroy(cl);
+	pthread_cond_destroy(ch);
 
 	if((ret=pthread_mutex_init(m, NULL))!=0 )
 		printf("mutex init failed, %d\n", ret);
@@ -980,6 +1013,7 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int64_t label)
 
 	pFrame=av_frame_alloc();
 //printf("av_frame_alloc\n");
+	av_frame_unref(pFrame);
 	if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, packet)) < 0)
 		printf("Error decoding audio frame\n");
 	if (frameFinished)
@@ -1096,9 +1130,20 @@ void aq_drain(struct audioqueue **q)
 
 void aq_destroy(pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
 {
+	int ret;
+
 	pthread_mutex_destroy(m);
 	pthread_cond_destroy(cl);
 	pthread_cond_destroy(ch);
+
+	if((ret=pthread_mutex_init(m, NULL))!=0 )
+		printf("destroy, mutex init failed, %d\n", ret);
+
+	if((ret=pthread_cond_init(ch, NULL))!=0 )
+		printf("destroy, cond init failed, %d\n", ret);
+
+	if((ret=pthread_cond_init(cl, NULL))!=0 )
+		printf("destroy, cond init failed, %d\n", ret);
 }
 
 pthread_mutex_t seekmutex; // = PTHREAD_MUTEX_INITIALIZER;
@@ -1482,34 +1527,31 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 	if (avail);
 //printf("avail: %d audio playing %lld, bufsize %d\n", (int)avail, p->label, p->dst_bufsize);
 
+	framecount = 0;
 	if (p->dst_data)
 	{
-		BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
-		framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
-//printf("framecount %d\n", framecount);
-		if (framecount)
-			err = snd_pcm_writei(handle, p->dst_data[0], framecount);
-//printf("snd_pcm_writei: %d\n", err);
+		if (p->dst_data[0])
+		{
+			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
+			framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
+			if (framecount)
+				err = snd_pcm_writei(handle, p->dst_data[0], framecount);
+			av_freep(&(p->dst_data[0]));
+		}
+		av_freep(&(p->dst_data));
 
-		if (videoStream==-1)
+		if (!videoduration) // no video stream
 		{
 			now_playing_frame += framecount;
 			if (!(p->label%10))
 				gdk_threads_add_idle(update_hscale, NULL);
 		}
-
-		if (p->dst_data[0])
-			av_freep(&(p->dst_data[0]));
-//printf("av_freep dst_data0\n");
-
-		av_freep(&(p->dst_data));
-//printf("av_freep\n");
 	}
 	else
 		err = 0;
 
 	av_packet_unref(p->packet);
-//printf("av_packet_unref\n");
+	av_free(p->packet);
 	free(p);
 
 	if (err == -EAGAIN)
@@ -1522,7 +1564,6 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 		if (xrun_recovery(handle, err) < 0)
 		{
 			printf("Write error: %s\n", snd_strerror(err));
-			//exit(EXIT_FAILURE);
 		}
 	}
 	return err;
@@ -1787,12 +1828,12 @@ struct videoqueue
 	char *rgba; // y,u,v byte arrays concatenated
 	int64_t label;
 };
-struct videoqueue *vq;
+struct videoqueue *vq = NULL;
 int vqLength;
-const int vqMaxLength = 10;
-pthread_mutex_t vqmutex; // = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t vqlowcond; // = PTHREAD_COND_INITIALIZER;
-pthread_cond_t vqhighcond; // = PTHREAD_COND_INITIALIZER;
+int vqMaxLength = 10;
+pthread_mutex_t vqmutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t vqlowcond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t vqhighcond = PTHREAD_COND_INITIALIZER;
 
 void vq_init(struct videoqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
 {
@@ -1800,6 +1841,10 @@ void vq_init(struct videoqueue **q, pthread_mutex_t *m, pthread_cond_t *cl, pthr
 
 	*q = NULL;
 	vqLength = 0;
+
+	pthread_mutex_destroy(m);
+	pthread_cond_destroy(cl);
+	pthread_cond_destroy(ch);
 
 	if((ret=pthread_mutex_init(m, NULL))!=0 )
 		printf("mutex init failed, %d\n", ret);
@@ -1926,9 +1971,20 @@ void vq_drain(struct videoqueue **q)
 
 void vq_destroy(pthread_mutex_t *m, pthread_cond_t *cl, pthread_cond_t *ch)
 {
+	int ret;
+
 	pthread_mutex_destroy(m);
 	pthread_cond_destroy(cl);
 	pthread_cond_destroy(ch);
+
+	if((ret=pthread_mutex_init(m, NULL))!=0 )
+		printf("destroy, mutex init failed, %d\n", ret);
+
+	if((ret=pthread_cond_init(ch, NULL))!=0 )
+		printf("destroy,cond init failed, %d\n", ret);
+
+	if((ret=pthread_cond_init(cl, NULL))!=0 )
+		printf("destroy,cond init failed, %d\n", ret);
 }
 
 int getNumberOfCpus( void )
@@ -2042,6 +2098,39 @@ int nomediafile(char *filepath)
 	);
 }
 
+void destroynotify(guchar *pixels, gpointer data)
+{
+//printf("destroy notify\n");
+	free(pixels);
+}
+
+gboolean invalidate(gpointer data)
+{
+	GdkWindow *dawin = gtk_widget_get_window(dwgarea);
+	cairo_region_t *region = gdk_window_get_clip_region(dawin);
+	gdk_window_invalidate_region (dawin, region, TRUE);
+	//gdk_window_process_updates (dawin, TRUE);
+	cairo_region_destroy(region);
+	return FALSE;
+}
+
+void initPixbuf(int width, int height)
+{
+	int i;
+
+	guchar *imgdata = malloc(width*height*4); // RGBA
+	for(i=0;i<width*height;i++)
+	{
+		((unsigned int *)imgdata)[i]=0xFF000000; // ABGR
+	}
+	g_mutex_lock(&pixbufmutex);
+	if (pixbuf)
+		g_object_unref(pixbuf);
+    pixbuf = gdk_pixbuf_new_from_data(imgdata, GDK_COLORSPACE_RGB, TRUE, 8, width, height, width*4, destroynotify, NULL);
+	g_mutex_unlock(&pixbufmutex);
+	gdk_threads_add_idle(invalidate, NULL);
+}
+
 int open_file(char * filename)
 {
     int i;
@@ -2081,7 +2170,7 @@ int open_file(char * filename)
 	}
 	if (videoStream==-1)
 	{
-		printf("No video stream found\n");
+//printf("No video stream found\n");
 		videoduration = 0;
 //		return -1; // Didn't find a video stream
 	}
@@ -2098,7 +2187,7 @@ int open_file(char * filename)
 			return -1; // Codec not found
 		}
 
-		pCodecCtx->thread_count = 4;
+		pCodecCtx->thread_count = thread_count;
 		// Open codec
 		if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		{
@@ -2134,7 +2223,7 @@ int open_file(char * filename)
 	}
 	if (audioStream==-1)
 	{
-		printf("No audio stream found\n");
+//printf("No audio stream found\n");
 //		return -1; // Didn't find an audio stream
 	}
 	else
@@ -2190,74 +2279,72 @@ int open_file(char * filename)
 gboolean enable_play_button(gpointer data)
 {
 	gtk_widget_set_sensitive (button2, FALSE);
+	gtk_widget_set_sensitive (button8, FALSE);
 	gtk_widget_set_sensitive (button1, TRUE);
 	return FALSE;
 }
 
 gboolean setLevel1(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), *((int*)data));
 	sprintf(leveltext1, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label1), leveltext1);
-	*/
 	return FALSE;
 }
 gboolean setLevel2(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), *((int*)data));
 	sprintf(leveltext2, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label2), leveltext2);
-	*/
 	return FALSE;
 }
 gboolean setLevel3(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), *((int*)data));
 	sprintf(leveltext3, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label3), leveltext3);
-	*/
 	return FALSE;
 }
 gboolean setLevel4(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), *((int*)data));
 	sprintf(leveltext4, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label4), leveltext4);
-	*/
 	return FALSE;
 }
 gboolean setLevel5(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), *((int*)data));
 	sprintf(leveltext5, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label5), leveltext5);
-	*/
 	return FALSE;
 }
 gboolean setLevel6(gpointer data)
 {
-	/*
 	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), *((int*)data));
 	sprintf(leveltext6, "%d", *((int*)data));
 	gtk_label_set_text(GTK_LABEL(label6), leveltext6);
-	*/
+	return FALSE;
+}
+gboolean setLevel7(gpointer data)
+{
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar7), *((float*)data));
+	sprintf(leveltext7, "%3.2f %%", *((float*)data));
+	gtk_label_set_text(GTK_LABEL(label7), leveltext7);
 	return FALSE;
 }
 
 void resetLevels()
 {
 	diff1 = diff2 = diff3 = diff4 = diff5 = diff6 = 0;
+	diff7 = 0.0;
 	gdk_threads_add_idle(setLevel1, &diff1);
 	gdk_threads_add_idle(setLevel2, &diff2);
 	gdk_threads_add_idle(setLevel3, &diff3);
 	gdk_threads_add_idle(setLevel4, &diff4);
 	gdk_threads_add_idle(setLevel5, &diff5);
 	gdk_threads_add_idle(setLevel6, &diff6);
+	gdk_threads_add_idle(setLevel7, &diff7);
 }
 
 gboolean play_next(gpointer data);
@@ -2301,6 +2388,7 @@ diff1=get_next_time_microseconds_2();
 		{
 //printf("videoStream %d\n", now_decoding_frame); printf("vqlength %d\n", vqLength);
 get_first_time_microseconds_2();
+			av_frame_unref(pFrame);
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
 diff2=get_next_time_microseconds_2();
 //printf("%lu usec avcodec_decode_video2\n", diff2);
@@ -2309,15 +2397,56 @@ diff2=get_next_time_microseconds_2();
 
 			if (frameFinished)
 			{
-				int width = pCodecCtx->width;
-				int height = pCodecCtx->height;
-				rgba = malloc(width * height*3/2);
-				memcpy(&rgba[0], pFrame->data[0], width*height); //y
-				memcpy(&rgba[width*height], pFrame->data[1], width*height/4); //u
-				memcpy(&rgba[width*height*5/4], pFrame->data[2], width*height/4); //v
+				if (!videoduration) // no video stream
+				{
+					AVFrame *pFrameRGB = NULL;
+					pFrameRGB = av_frame_alloc();
+
+					uint8_t *rgbbuffer = NULL;
+					int numBytes = avpicture_get_size(AV_PIX_FMT_RGB32, playerWidth, playerHeight);
+					//printf("numbytes %d\n", numBytes);
+
+					rgbbuffer = (uint8_t *)av_malloc(numBytes * sizeof(uint8_t));
+					avpicture_fill((AVPicture *)pFrameRGB, rgbbuffer, AV_PIX_FMT_RGB32, playerWidth, playerHeight);
+
+					struct SwsContext *sws_ctx = NULL;
+					sws_ctx = sws_getContext(
+					pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
+					playerWidth, playerHeight, AV_PIX_FMT_RGB32, 
+					SWS_BILINEAR, NULL, NULL, NULL);
+
+					get_first_time_microseconds_2();
+					//printf("sws_scale %d %d\n", playerWidth, playerHeight);
+					sws_scale(sws_ctx, (uint8_t const* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameRGB->data, pFrameRGB->linesize);
+					//printf("sws_scale done\n");
+					diff4=get_next_time_microseconds_2();
+					gdk_threads_add_idle(setLevel4, &diff4);
+
+					rgba = malloc(pFrameRGB->linesize[0] * playerHeight);
+					//printf("malloc %d %d\n", pFrameRGB->linesize[0], playerHeight);
+					memcpy(rgba, pFrameRGB->data[0], pFrameRGB->linesize[0] * playerHeight);
+					//printf("memcpy %d\n", pFrameRGB->linesize[0] * playerHeight);
+
+					av_free(rgbbuffer);
+					//printf("av_free\n");
+					av_frame_unref(pFrameRGB);
+					//printf("av_frame_unref\n");
+				}
+				else
+				{
+					int width = pCodecCtx->width;
+					int height = pCodecCtx->height;
+					rgba = malloc(width * height*3/2);
+					memcpy(&rgba[0], pFrame->data[0], width*height); //y
+					memcpy(&rgba[width*height], pFrame->data[1], width*height/4); //u
+					memcpy(&rgba[width*height*5/4], pFrame->data[2], width*height/4); //v
+				}
 
 				pthread_mutex_lock(&framemutex);
-				fnum = now_decoding_frame++;
+				if (!videoduration)
+					fnum = now_decoding_frame = 0;
+				else
+					fnum = now_decoding_frame++;
 				pthread_mutex_unlock(&framemutex);
 				vq_add(&vq, packet, rgba, fnum);
 
@@ -2347,11 +2476,20 @@ get_first_time_microseconds_2();
 
 	av_packet_unref(packet);
 //printf("av_packet_unref\n");
+	av_free(packet);
 
 	if (videoStream!=-1)
+	{
 		avcodec_flush_buffers(pCodecCtx);
+		avcodec_close(pFormatCtx->streams[videoStream]->codec);
+		//av_free(pCodecCtx);
+	}
 	if (audioStream!=-1)
+	{
 		avcodec_flush_buffers(pCodecCtxA);
+		avcodec_close(pFormatCtx->streams[audioStream]->codec);
+		//av_free(pCodecCtxA);
+	}
 
 	avformat_close_input(&pFormatCtx);
 	avformat_network_deinit();
@@ -2412,43 +2550,12 @@ void* audioPlayFromQueue(void *arg)
 	pthread_exit((void*)&retval_audio);
 }
 
-gboolean invalidate(gpointer data)
-{
-	GdkWindow *dawin = gtk_widget_get_window(dwgarea);
-	cairo_region_t *region = gdk_window_get_clip_region(dawin);
-	gdk_window_invalidate_region (dawin, region, TRUE);
-	//gdk_window_process_updates (dawin, TRUE);
-	cairo_region_destroy(region);
-	return FALSE;
-}
-
-void destroynotify(guchar *pixels, gpointer data)
-{
-//printf("destroy notify\n");
-	free(pixels);
-}
-
-void initPixbuf(int width, int height)
-{
-	int i;
-
-	guchar *imgdata = malloc(width*height*4); // RGBA
-	for(i=0;i<width*height;i++)
-	{
-		((unsigned int *)imgdata)[i]=0xFF000000; // ABGR
-	}
-	g_mutex_lock(&pixbufmutex);
-	if (pixbuf)
-		g_object_unref(pixbuf);
-    pixbuf = gdk_pixbuf_new_from_data(imgdata, GDK_COLORSPACE_RGB, TRUE, 8, width, height, width*4, destroynotify, NULL);
-	g_mutex_unlock(&pixbufmutex);
-}
-
 void* videoPlayFromQueue(void *arg)
 {
 	struct videoqueue *p;
 	UserData *userData;
 	long diff = 0;
+	long framesskipped = 0;
 
 	int ctype = PTHREAD_CANCEL_ASYNCHRONOUS;
 	int ctype_old;
@@ -2482,11 +2589,10 @@ void* videoPlayFromQueue(void *arg)
 	{
 		if ((p = vq_remove(&vq)) == NULL)
 			break;
+//printf("Video %d\n", gettid());
 
-		//printf("Frame %d, width=%d, height=%d\n", p->label, width, height);
-		//usleep(33670); // 29.7 frames per second
-		//printf("Video %d\n", gettid());
-		now_playing_frame = p->label;
+		if (videoduration)
+			now_playing_frame = p->label;
 
 		if (diff > 0)
 		{
@@ -2496,66 +2602,80 @@ void* videoPlayFromQueue(void *arg)
 				usleep(0-diff);
 				diff = 0;
 			}
-printf("skip %lld\n", p->label);
+//printf("skip %lld\n", p->label);
+			framesskipped++;
+			diff7 = (framesskipped*100)/now_playing_frame;
+			gdk_threads_add_idle(setLevel7, &diff7);
 
 			free(p->rgba);
 //printf("free rgba\n");
 			av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
+			av_free(p->packet);
 			free(p);
 //printf("free vq\n");
 
 			continue;
 		}
 
-get_first_time_microseconds();
-		texImage2D(p->rgba, width/4, height*3/2);
-diff3=get_next_time_microseconds();
+		if (!videoduration) // No video stream || single jpeg album art with mp3
+		{
+			g_mutex_lock(&pixbufmutex);
+			//printf("pixbuf memcpy\n");
+			memcpy(userData->outrgb, p->rgba, p_state->screen_width*p_state->screen_height*4);
+			//printf("pixbuf memcpy %d %d\n", p_state->screen_width, p_state->screen_height);
+			g_mutex_unlock(&pixbufmutex);
+			gdk_threads_add_idle(invalidate, NULL);
+		}
+		else
+		{
+			get_first_time_microseconds();
+			texImage2D(p->rgba, width/4, height*3/2);
+			diff3=get_next_time_microseconds();
 //printf("%lu usec glTexImage2D\n", diff3);
 
-get_first_time_microseconds();
-		redraw_scene(p_state);
-
-diff4=get_next_time_microseconds();
+			get_first_time_microseconds();
+			redraw_scene(p_state);
+			diff4=get_next_time_microseconds();
 //printf("%lu usec redraw\n", diff4);
 
-get_first_time_microseconds();
+			get_first_time_microseconds();
 
-		g_mutex_lock(&pixbufmutex);
-		glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
-		g_mutex_unlock(&pixbufmutex);
+			g_mutex_lock(&pixbufmutex);
+			glReadPixels(0, 0, p_state->screen_width, p_state->screen_height, GL_RGBA, GL_UNSIGNED_BYTE, userData->outrgb);
+			g_mutex_unlock(&pixbufmutex);
 
-diff5=get_next_time_microseconds();
+			diff5=get_next_time_microseconds();
 //printf("%lu usec glReadPixels\n", diff5);
 
 		//checkNoGLES2Error();
 
-		if (!(now_playing_frame%10))
-		{
-			gdk_threads_add_idle(setLevel3, &diff3);
-			gdk_threads_add_idle(setLevel4, &diff4);
-			gdk_threads_add_idle(setLevel5, &diff5);
-			gdk_threads_add_idle(update_hscale, NULL);
+			if (!(now_playing_frame%10))
+			{
+				gdk_threads_add_idle(setLevel3, &diff3);
+				gdk_threads_add_idle(setLevel4, &diff4);
+				gdk_threads_add_idle(setLevel5, &diff5);
+				gdk_threads_add_idle(update_hscale, NULL);
+			}
 		}
 
 		free(p->rgba);
 //printf("free rgba\n");
 		av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
+		av_free(p->packet);
 		free(p);
 //printf("free vq\n");
 
 		diff = diff3 + diff4 + diff5 + 2000;
 		//printf("%5lu usec frame, frametime %5d\n", diff, frametime);
 		diff -= frametime;
+		gdk_threads_add_idle(invalidate, NULL);
 		if (diff<0)
 		{
-			gdk_threads_add_idle(invalidate, NULL);
 			usleep(0-diff);
 			diff = 0;
 		}
-
-		gdk_threads_add_idle(invalidate, NULL);
 	}
 	exit_func();
 
@@ -2607,17 +2727,6 @@ void create_thread_framereader()
     {}
 }
 
-/* Called when the windows are realized */
-static void realize_cb(GtkWidget *widget, gpointer data)
-{
-	GtkAllocation *alloc = g_new(GtkAllocation, 1);
-	gtk_widget_get_allocation(hscale, alloc);
-	int scaleheight = alloc->height;
-	g_free(alloc);
-	//printf("Scale height %d\n", scaleheight);
-	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
-}
-
 static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
 {
     /* If you return FALSE in the "delete-event" signal handler,
@@ -2663,9 +2772,7 @@ static gboolean draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data)
 
 static void push_message(GtkWidget *widget, gint cid, char *msg)
 {
-  gchar *buff;
-
-  buff = g_strdup_printf("%s", msg);
+  gchar *buff = g_strdup_printf("%s", msg);
   gtk_statusbar_push(GTK_STATUSBAR(statusbar), cid, buff);
   g_free (buff);
 }
@@ -2673,6 +2780,164 @@ static void push_message(GtkWidget *widget, gint cid, char *msg)
 static void pop_message(GtkWidget *widget, gint cid)
 {
   gtk_statusbar_pop(GTK_STATUSBAR(widget), cid);
+}
+
+void point2comma(char *c)
+{
+	int i;
+
+	for(i=0;c[i];i++)
+		if (c[i]=='.')
+			c[i]=',';
+}
+
+int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColName) 
+{
+	char* errCheck;
+	double f;
+
+	point2comma(argv[1]);
+	f=strtod(argv[1], &errCheck);
+	if (errCheck == argv[1])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[1], argv[1]);
+	}
+	gtk_adjustment_set_value(vadj0, -f);
+
+	point2comma(argv[2]);
+	f=strtod(argv[2], &errCheck);
+	if (errCheck == argv[2])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[2], argv[2]);
+	}
+	gtk_adjustment_set_value(vadj1, -f);
+
+	point2comma(argv[3]);
+	f=strtod(argv[3], &errCheck);
+	if (errCheck == argv[3])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[3], argv[3]);
+	}
+	gtk_adjustment_set_value(vadj2, -f);
+
+	point2comma(argv[4]);
+	f=strtod(argv[4], &errCheck);
+	if (errCheck == argv[4])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[4], argv[4]);
+	}
+	gtk_adjustment_set_value(vadj3, -f);
+
+	point2comma(argv[5]);
+	f=strtod(argv[5], &errCheck);
+	if (errCheck == argv[5])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[5], argv[5]);
+	}
+	gtk_adjustment_set_value(vadj4, -f);
+
+	point2comma(argv[6]);
+	f=strtod(argv[6], &errCheck);
+	if (errCheck == argv[6])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[6], argv[6]);
+	}
+	gtk_adjustment_set_value(vadj5, -f);
+
+	point2comma(argv[7]);
+	f=strtod(argv[7], &errCheck);
+	if (errCheck == argv[7])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[7], argv[7]);
+	}
+	gtk_adjustment_set_value(vadj6, -f);
+
+	point2comma(argv[8]);
+	f=strtod(argv[8], &errCheck);
+	if (errCheck == argv[8])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[8], argv[8]);
+	}
+	gtk_adjustment_set_value(vadj7, -f);
+
+	point2comma(argv[9]);
+	f=strtod(argv[9], &errCheck);
+	if (errCheck == argv[9])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[9], argv[9]);
+	}
+	gtk_adjustment_set_value(vadj8, -f);
+
+	point2comma(argv[10]);
+	f=strtod(argv[10], &errCheck);
+	if (errCheck == argv[10])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[10], argv[10]);
+	}
+	gtk_adjustment_set_value(vadj9, -f);
+
+	point2comma(argv[11]);
+	f=strtod(argv[11], &errCheck);
+	if (errCheck == argv[11])
+	{
+		f=0.0;
+		printf("Conversion error %s %s\n", azColName[11], argv[11]);
+	}
+	gtk_adjustment_set_value(vadjA, 1.0-f);
+	return 0;
+}
+
+void select_eqpreset(char* id)
+{
+	sqlite3 *db;
+	char *err_msg = NULL;
+	char sql[256];
+	int rc;
+
+	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+	{
+		printf("Can't open database: %s\n", sqlite3_errmsg(db));
+	}
+	else
+	{
+//printf("Opened database successfully\n");
+		sql[0] = '\0';
+		strcat(sql, "SELECT * FROM eqpresets where id=");
+		strcat(sql, id);
+		strcat(sql, ";");
+		if((rc = sqlite3_exec(db, sql, select_eqpreset_callback, 0, &err_msg)) != SQLITE_OK)
+		{
+			printf("Failed to select data, %s\n", err_msg);
+			sqlite3_free(err_msg);
+		}
+		else
+		{
+// success
+		}
+	}
+	sqlite3_close(db);
+}
+
+
+/* Called when the windows are realized */
+static void realize_cb(GtkWidget *widget, gpointer data)
+{
+	GtkAllocation *alloc = g_new(GtkAllocation, 1);
+	gtk_widget_get_allocation(hscale, alloc);
+	int scaleheight = alloc->height;
+	g_free(alloc);
+	//printf("Scale height %d\n", scaleheight);
+	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
 }
 
 static void button1_clicked(GtkWidget *button, gpointer data)
@@ -2685,6 +2950,7 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 //g_print("Button 1 clicked\n");
 	gtk_widget_set_sensitive(button1, FALSE);
 	gtk_widget_set_sensitive(button2, TRUE);
+	gtk_widget_set_sensitive(button8, TRUE);
 
 	// Init Video Queue
 	vq_init(&vq, &vqmutex, &vqlowcond, &vqhighcond);
@@ -2711,14 +2977,22 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 		return;
 	}
 
-	if (videoStream!=-1)
+	if (videoduration)
 	{
 		playerHeight = playerWidth * pCodecCtx->height / pCodecCtx->width;
-		gtk_widget_set_size_request (dwgarea, playerWidth, playerHeight);
+		gtk_widget_set_size_request(dwgarea, playerWidth, playerHeight);
 		gtk_adjustment_set_upper(hadjustment, videoduration);
 	}
 	else
 	{
+		if (pCodecCtxA->width)
+			playerHeight = playerWidth * pCodecCtxA->height / pCodecCtxA->width;
+		else
+			playerHeight = 0;
+		int pminheight = playerWidth * 9 / 16;
+		playerHeight = (playerHeight<pminheight?pminheight:playerHeight);
+		gtk_widget_set_size_request(dwgarea, playerWidth, playerHeight);
+		initPixbuf(playerWidth, playerHeight);
 		gtk_adjustment_set_upper(hadjustment, audioduration);
 	}
 
@@ -2733,11 +3007,39 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 //printf("create_threads_av\n");
 
 	pop_message(statusbar, context_id);
-	char msg[1024];
-	if (videoStream!=-1)
-		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, strlastpart(now_playing, "/", 0));
+	char msg[256];
+	char msgtext[256];
+	char *txt;
+	int pos;
+
+	if (videoduration)
+	{
+		txt = strlastpart(now_playing, "/", 0);
+		pos = strlen(txt);
+		strcpy(msgtext, txt);
+		if (pos>80)
+		{
+			msgtext[35] = '\0';
+			strcat(msgtext, "...");
+			pos -= 35;
+			strcat(msgtext, txt+pos);
+		}
+		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, msgtext);
+	}
 	else
-		sprintf(msg, "%s", strlastpart(now_playing, "/", 0));
+	{
+		txt = strlastpart(now_playing, "/", 0);
+		pos = strlen(txt);
+		strcpy(msgtext, txt);
+		if (pos>100)
+		{
+			msgtext[45] = '\0';
+			strcat(msgtext, "...");
+			pos -= 45;
+			strcat(msgtext, txt+pos);
+		}
+		sprintf(msg, "%s", msgtext);
+	}
 	push_message(statusbar, context_id, msg);
 
 	gtk_window_resize(GTK_WINDOW(window), 100, 100);
@@ -2749,7 +3051,17 @@ static void button2_clicked(GtkWidget *button, gpointer data)
 //g_print("Button 2 clicked\n");
 	stoprequested = 1;
 	gtk_widget_set_sensitive (button2, FALSE);
+	gtk_widget_set_sensitive (button8, FALSE);
 	gtk_widget_set_sensitive (button1, TRUE);
+}
+
+static void button8_clicked(GtkWidget *button, gpointer data)
+{
+//g_print("Button 8 clicked\n");
+	stoprequested = 1;
+	while(!(playerstatus == idle))
+		usleep(100000); // 0.1s
+	play_next(NULL);
 }
 
 /*
@@ -3226,7 +3538,7 @@ gboolean scale_released(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 
 	if (playerstatus==playing)
 	{
-		if (videoStream!=-1)
+		if (videoduration)
 		{
 			AVStream *st = pFormatCtx->streams[videoStream];
 			double seektime = value / frame_rate; // seconds
@@ -3299,152 +3611,6 @@ static gboolean delete_event_eq(GtkWidget *widget, GdkEvent *event, gpointer dat
     return TRUE;
 }
 
-void point2comma(char *c)
-{
-	int i;
-
-	for(i=0;c[i];i++)
-		if (c[i]=='.')
-			c[i]=',';
-}
-
-int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColName) 
-{
-	char* errCheck;
-	double f;
-
-	point2comma(argv[1]);
-	f=strtod(argv[1], &errCheck);
-	if (errCheck == argv[1])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[1], argv[1]);
-	}
-	gtk_adjustment_set_value(vadj0, -f);
-
-	point2comma(argv[2]);
-	f=strtod(argv[2], &errCheck);
-	if (errCheck == argv[2])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[2], argv[2]);
-	}
-	gtk_adjustment_set_value(vadj1, -f);
-
-	point2comma(argv[3]);
-	f=strtod(argv[3], &errCheck);
-	if (errCheck == argv[3])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[3], argv[3]);
-	}
-	gtk_adjustment_set_value(vadj2, -f);
-
-	point2comma(argv[4]);
-	f=strtod(argv[4], &errCheck);
-	if (errCheck == argv[4])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[4], argv[4]);
-	}
-	gtk_adjustment_set_value(vadj3, -f);
-
-	point2comma(argv[5]);
-	f=strtod(argv[5], &errCheck);
-	if (errCheck == argv[5])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[5], argv[5]);
-	}
-	gtk_adjustment_set_value(vadj4, -f);
-
-	point2comma(argv[6]);
-	f=strtod(argv[6], &errCheck);
-	if (errCheck == argv[6])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[6], argv[6]);
-	}
-	gtk_adjustment_set_value(vadj5, -f);
-
-	point2comma(argv[7]);
-	f=strtod(argv[7], &errCheck);
-	if (errCheck == argv[7])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[7], argv[7]);
-	}
-	gtk_adjustment_set_value(vadj6, -f);
-
-	point2comma(argv[8]);
-	f=strtod(argv[8], &errCheck);
-	if (errCheck == argv[8])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[8], argv[8]);
-	}
-	gtk_adjustment_set_value(vadj7, -f);
-
-	point2comma(argv[9]);
-	f=strtod(argv[9], &errCheck);
-	if (errCheck == argv[9])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[9], argv[9]);
-	}
-	gtk_adjustment_set_value(vadj8, -f);
-
-	point2comma(argv[10]);
-	f=strtod(argv[10], &errCheck);
-	if (errCheck == argv[10])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[10], argv[10]);
-	}
-	gtk_adjustment_set_value(vadj9, -f);
-
-	point2comma(argv[11]);
-	f=strtod(argv[11], &errCheck);
-	if (errCheck == argv[11])
-	{
-		f=0.0;
-		printf("Conversion error %s %s\n", azColName[11], argv[11]);
-	}
-	gtk_adjustment_set_value(vadjA, 1.0-f);
-	return 0;
-}
-
-void select_eqpreset(char* id)
-{
-	sqlite3 *db;
-	char *err_msg = NULL;
-	char sql[256];
-	int rc;
-
-	if((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
-	{
-		printf("Can't open database: %s\n", sqlite3_errmsg(db));
-	}
-	else
-	{
-//printf("Opened database successfully\n");
-		sql[0] = '\0';
-		strcat(sql, "SELECT * FROM eqpresets where id=");
-		strcat(sql, id);
-		strcat(sql, ";");
-		if((rc = sqlite3_exec(db, sql, select_eqpreset_callback, 0, &err_msg)) != SQLITE_OK)
-		{
-			printf("Failed to select data, %s\n", err_msg);
-			sqlite3_free(err_msg);
-		}
-		else
-		{
-// success
-		}
-	}
-	sqlite3_close(db);
-}
-
 int select_eqpresetnames_callback(void *NotUsed, int argc, char **argv, char **azColName) 
 {
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combopreset), argv[0], argv[12]);
@@ -3479,6 +3645,12 @@ void select_eqpreset_names()
 	sqlite3_close(db);
 }
 
+/* Called when the windows are realized */
+static void realize_eq(GtkWidget *widget, gpointer data)
+{
+	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
+}
+
 static void preset_changed(GtkWidget *combo, gpointer data)
 {
 	gchar *strval;
@@ -3497,10 +3669,72 @@ static void eq_toggled(GtkWidget *togglebutton, gpointer data)
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)));
 }
 
-/* Called when the windows are realized */
-static void realize_eq(GtkWidget *widget, gpointer data)
+static void buttonEQshowhide_clicked(GtkWidget *button, gpointer data)
 {
-	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
+	if (gtk_widget_get_visible(windoweq))
+		gtk_widget_hide(windoweq);
+	else
+		gtk_widget_show_all(windoweq);
+}
+
+static void buttonParameters_clicked(GtkWidget *button, gpointer data)
+{
+	if (gtk_widget_get_visible(windowparm))
+		gtk_widget_hide(windowparm);
+	else
+		gtk_widget_show_all(windowparm);
+}
+
+static gboolean delete_event_parm(GtkWidget *widget, GdkEvent *event, gpointer data)
+{
+    /* If you return FALSE in the "delete-event" signal handler,
+     * GTK will emit the "destroy" signal. Returning TRUE means
+     * you don't want the window to be destroyed.
+     * This is useful for popping up 'are you sure you want to quit?'
+     * type dialogs. */
+//g_print ("delete event occurred\n");
+    return TRUE;
+}
+
+/* Called when the windows are realized */
+static void realize_parm(GtkWidget *widget, gpointer data)
+{
+}
+
+static void aqmaxlength_changed(GtkWidget *widget, gpointer data)
+{
+	int newvalue = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton1));
+
+	pthread_mutex_lock(&aqmutex);
+	if (newvalue > aqMaxLength)
+		pthread_cond_signal(&aqhighcond); // Should wake up *one* thread
+	else
+		pthread_cond_signal(&aqlowcond); // Should wake up *one* thread
+	aqMaxLength = newvalue;
+	pthread_mutex_unlock(&aqmutex);
+}
+
+static void vqmaxlength_changed(GtkWidget *widget, gpointer data)
+{
+	int newvalue = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton2));
+
+	pthread_mutex_lock(&vqmutex);
+	if (newvalue > vqMaxLength)
+		pthread_cond_signal(&vqhighcond); // Should wake up *one* thread
+	else
+		pthread_cond_signal(&vqlowcond); // Should wake up *one* thread
+	vqMaxLength = newvalue;
+	pthread_mutex_unlock(&vqmutex);
+}
+
+static void threadcount_changed(GtkWidget *widget, gpointer data)
+{
+	thread_count = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton3));
+}
+
+static void playerwidth_changed(GtkWidget *widget, gpointer data)
+{
+	playerWidth = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton4));
 }
 
 int main(int argc, char** argv)
@@ -3592,72 +3826,27 @@ int main(int argc, char** argv)
     g_signal_connect(GTK_BUTTON(button1), "clicked", G_CALLBACK(button1_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box), button1);
 
+// button next
+    button8 = gtk_button_new_with_label("Next");
+    gtk_widget_set_sensitive (button8, FALSE);
+    g_signal_connect(GTK_BUTTON(button8), "clicked", G_CALLBACK(button8_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box), button8);
+
 // button stop
     button2 = gtk_button_new_with_label("Stop");
     gtk_widget_set_sensitive (button2, FALSE);
     g_signal_connect(GTK_BUTTON(button2), "clicked", G_CALLBACK(button2_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box), button2);
 
-// levelbars
-    verti1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti1);
-	levelbar1 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), 0.0);
-	gtk_widget_set_size_request(levelbar1, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar1);
-	gtk_container_add(GTK_CONTAINER(verti1), levelbar1);
-	label1 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti1), label1);
+// button show/hide EQ
+    buttonEQshowhide = gtk_button_new_with_label("EQ");
+    g_signal_connect(GTK_BUTTON(buttonEQshowhide), "clicked", G_CALLBACK(buttonEQshowhide_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box), buttonEQshowhide);
 
-    verti2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti2);
-	levelbar2 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), 0.0);
-	gtk_widget_set_size_request(levelbar2, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar2);
-	gtk_container_add(GTK_CONTAINER(verti2), levelbar2);
-	label2 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti2), label2);
-
-    verti3 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti3);
-	levelbar3 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), 0.0);
-	gtk_widget_set_size_request (levelbar3, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar3);
-	gtk_container_add(GTK_CONTAINER(verti3), levelbar3);
-	label3 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti3), label3);
-
-    verti4 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti4);
-	levelbar4 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), 0.0);
-	gtk_widget_set_size_request(levelbar4, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar4);
-	gtk_container_add(GTK_CONTAINER(verti4), levelbar4);
-	label4 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti4), label4);
-
-    verti5 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti5);
-	levelbar5 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), 0.0);
-	gtk_widget_set_size_request (levelbar5, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar5);
-	gtk_container_add(GTK_CONTAINER(verti5), levelbar5);
-	label5 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti5), label5);
-
-    verti6 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(horibox), verti6);
-	levelbar6 = gtk_level_bar_new_for_interval(0.0, 20000.0);
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), 0.0);
-	gtk_widget_set_size_request(levelbar6, 50, 10);
-	//gtk_container_add(GTK_CONTAINER(horibox), levelbar6);
-	gtk_container_add(GTK_CONTAINER(verti6), levelbar6);
-	label6 = gtk_label_new("0");
-	gtk_container_add(GTK_CONTAINER(verti6), label6);
+// button Parameters
+    buttonParameters = gtk_button_new_with_label("AV");
+    g_signal_connect(GTK_BUTTON(buttonParameters), "clicked", G_CALLBACK(buttonParameters_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box), buttonParameters);
 // box1 contents end
 
 // box2 contents begin
@@ -3727,7 +3916,7 @@ int main(int argc, char** argv)
 	g_signal_connect (windoweq, "realize", G_CALLBACK (realize_eq), NULL);
 
     gtk_container_set_border_width (GTK_CONTAINER (windoweq), 2);
-	gtk_widget_set_size_request(window, 100, 100);
+	gtk_widget_set_size_request(windoweq, 100, 100);
 	gtk_window_set_title(GTK_WINDOW(windoweq), "Audio Equalizer");
 	gtk_window_set_resizable(GTK_WINDOW(windoweq), FALSE);
 
@@ -3753,7 +3942,6 @@ int main(int argc, char** argv)
     gtk_widget_set_size_request(vscaleeq0, 40, 200);
 	eqlabel0 = gtk_label_new(eqlabels[0]);
 	gtk_container_add(GTK_CONTAINER(eqbox0), eqlabel0);
-    
 
 // vertical scale 1
     eqbox1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
@@ -3923,18 +4111,187 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(eqbox2), combopreset);
 
     gtk_widget_show_all(windoweq);
+    gtk_widget_hide(windoweq);
 
+
+    /* create a new window for AV Parameters */
+    windowparm = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_position(GTK_WINDOW(windowparm), GTK_WIN_POS_CENTER);
+    /* When the window is given the "delete-event" signal (this is given
+     * by the window manager, usually by the "close" option, or on the
+     * titlebar), we ask it to call the delete_event () function
+     * as defined above. The data passed to the callback
+     * function is NULL and is ignored in the callback function. */
+    g_signal_connect (windowparm, "delete-event", G_CALLBACK(delete_event_parm), NULL);
+	g_signal_connect (windowparm, "realize", G_CALLBACK (realize_parm), NULL);
+
+    gtk_container_set_border_width (GTK_CONTAINER (windowparm), 2);
+	//gtk_widget_set_size_request(windowparm, 100, 100);
+	gtk_window_set_title(GTK_WINDOW(windowparm), "AV Parameters");
+	gtk_window_set_resizable(GTK_WINDOW(windowparm), FALSE);
+
+// vertical box
+    parmvbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(windowparm), parmvbox);
+
+// horizontal box 1
+	parmhbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox1);
+// audio queue max length
+	parmlabel1 = gtk_label_new("Audio Queue Max Length");
+	gtk_widget_set_size_request(parmlabel1, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox1), parmlabel1);
+	spinbutton1 = gtk_spin_button_new_with_range (10.0, 100.0, 1.0);
+	gtk_widget_set_size_request(spinbutton1, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton1), aqMaxLength);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton1), "value-changed", G_CALLBACK(aqmaxlength_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(parmhbox1), spinbutton1);
+
+// horizontal box 2
+	parmhbox2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox2);
+// video queue max length
+	parmlabel2 = gtk_label_new("Video Queue Max Length");
+	gtk_widget_set_size_request(parmlabel2, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox2), parmlabel2);
+	spinbutton2 = gtk_spin_button_new_with_range (10.0, 100.0, 1.0);
+	gtk_widget_set_size_request(spinbutton2, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton2), vqMaxLength);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton2), "value-changed", G_CALLBACK(vqmaxlength_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(parmhbox2), spinbutton2);
+
+// horizontal box 3
+	parmhbox3 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox3);
+// thread count
+	parmlabel3 = gtk_label_new("Thread Count");
+	gtk_widget_set_size_request(parmlabel3, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox3), parmlabel3);
+	spinbutton3 = gtk_spin_button_new_with_range (1.0, 8.0, 1.0);
+	gtk_widget_set_size_request(spinbutton3, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton3), thread_count);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton3), "value-changed", G_CALLBACK(threadcount_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(parmhbox3), spinbutton3);
+
+// horizontal box 4
+	parmhbox4 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox4);
+// player width
+	parmlabel4 = gtk_label_new("Player Width");
+	gtk_widget_set_size_request(parmlabel4, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox4), parmlabel4);
+	spinbutton4 = gtk_spin_button_new_with_range (320.0, 1920.0, 80.0);
+	gtk_widget_set_size_request(spinbutton4, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton4), playerWidth);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton4), "value-changed", G_CALLBACK(playerwidth_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(parmhbox4), spinbutton4);
+
+// levelbars
+	parmhlevel1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel1);
+	levellabel1 = gtk_label_new("Read Frame");
+	gtk_widget_set_size_request(levellabel1, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel1), levellabel1);
+	levelbar1 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar1), 0.0);
+	gtk_widget_set_size_request(levelbar1, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel1), levelbar1);
+	label1 = gtk_label_new("0");
+	gtk_widget_set_size_request(label1, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel1), label1);
+
+	parmhlevel2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel2);
+	levellabel2 = gtk_label_new("Decode");
+	gtk_widget_set_size_request(levellabel2, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel2), levellabel2);
+	levelbar2 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar2), 0.0);
+	gtk_widget_set_size_request(levelbar2, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel2), levelbar2);
+	label2 = gtk_label_new("0");
+	gtk_widget_set_size_request(label2, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel2), label2);
+
+	parmhlevel3 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel3);
+	levellabel3 = gtk_label_new("TexImage2D");
+	gtk_widget_set_size_request(levellabel3, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel3), levellabel3);
+	levelbar3 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar3), 0.0);
+	gtk_widget_set_size_request(levelbar3, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel3), levelbar3);
+	label3 = gtk_label_new("0");
+	gtk_widget_set_size_request(label3, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel3), label3);
+
+	parmhlevel4 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel4);
+	levellabel4 = gtk_label_new("Draw");
+	gtk_widget_set_size_request(levellabel4, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel4), levellabel4);
+	levelbar4 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar4), 0.0);
+	gtk_widget_set_size_request(levelbar4, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel4), levelbar4);
+	label4 = gtk_label_new("0");
+	gtk_widget_set_size_request(label4, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel4), label4);
+
+	parmhlevel5 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel5);
+	levellabel5 = gtk_label_new("Read Pixels");
+	gtk_widget_set_size_request(levellabel5, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel5), levellabel5);
+	levelbar5 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar5), 0.0);
+	gtk_widget_set_size_request(levelbar5, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel5), levelbar5);
+	label5 = gtk_label_new("0");
+	gtk_widget_set_size_request(label5, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel5), label5);
+
+	parmhlevel6 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel6);
+	levellabel6 = gtk_label_new("Cairo");
+	gtk_widget_set_size_request(levellabel6, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel6), levellabel6);
+	levelbar6 = gtk_level_bar_new_for_interval(0.0, 20000.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar6), 0.0);
+	gtk_widget_set_size_request(levelbar6, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel6), levelbar6);
+	label6 = gtk_label_new("0");
+	gtk_widget_set_size_request(label6, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel6), label6);
+
+	parmhlevel7 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(parmvbox), parmhlevel7);
+	levellabel7 = gtk_label_new("Frame Drop");
+	gtk_widget_set_size_request(levellabel7, 200, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel7), levellabel7);
+	levelbar7 = gtk_level_bar_new_for_interval(0.0, 100.0);
+	gtk_level_bar_set_value(GTK_LEVEL_BAR(levelbar7), 0.0);
+	gtk_widget_set_size_request(levelbar7, 100, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel7), levelbar7);
+	label7 = gtk_label_new("0 %");
+	gtk_widget_set_size_request(label7, 50, 30);
+	gtk_container_add(GTK_CONTAINER(parmhlevel7), label7);
+
+	gtk_widget_show_all(windowparm);
+	gtk_widget_hide(windowparm);
+
+	// Commandline
 	if (argc>1)
 	{
 		now_playing = (char *)g_malloc(strlen(argv[1])+1);
 		strcpy(now_playing, argv[1]);
 	}
-
 	button1_clicked(button1, NULL);
 
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or mouse event). */
-    gtk_main ();
+    gtk_main();
 
 	pthread_mutex_destroy(&seekmutex);
 
