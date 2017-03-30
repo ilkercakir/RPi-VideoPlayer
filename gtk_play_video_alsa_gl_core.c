@@ -2401,6 +2401,7 @@ diff2=get_next_time_microseconds_2();
 				{
 					AVFrame *pFrameRGB = NULL;
 					pFrameRGB = av_frame_alloc();
+					av_frame_unref(pFrameRGB);
 
 					uint8_t *rgbbuffer = NULL;
 					int numBytes = avpicture_get_size(AV_PIX_FMT_RGB32, playerWidth, playerHeight);
@@ -2409,11 +2410,8 @@ diff2=get_next_time_microseconds_2();
 					rgbbuffer = (uint8_t *)av_malloc(numBytes * sizeof(uint8_t));
 					avpicture_fill((AVPicture *)pFrameRGB, rgbbuffer, AV_PIX_FMT_RGB32, playerWidth, playerHeight);
 
-					struct SwsContext *sws_ctx = NULL;
-					sws_ctx = sws_getContext(
-					pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-					playerWidth, playerHeight, AV_PIX_FMT_RGB32, 
-					SWS_BILINEAR, NULL, NULL, NULL);
+					struct SwsContext *sws_ctx = sws_getContext( pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
+					playerWidth, playerHeight, AV_PIX_FMT_RGB32, SWS_BILINEAR, NULL, NULL, NULL);
 
 					get_first_time_microseconds_2();
 					//printf("sws_scale %d %d\n", playerWidth, playerHeight);
@@ -2421,6 +2419,8 @@ diff2=get_next_time_microseconds_2();
 					//printf("sws_scale done\n");
 					diff4=get_next_time_microseconds_2();
 					gdk_threads_add_idle(setLevel4, &diff4);
+
+					sws_freeContext(sws_ctx);
 
 					rgba = malloc(pFrameRGB->linesize[0] * playerHeight);
 					//printf("malloc %d %d\n", pFrameRGB->linesize[0], playerHeight);
@@ -2431,6 +2431,7 @@ diff2=get_next_time_microseconds_2();
 					//printf("av_free\n");
 					av_frame_unref(pFrameRGB);
 					//printf("av_frame_unref\n");
+					av_frame_free(&pFrameRGB);
 				}
 				else
 				{
@@ -2625,6 +2626,7 @@ void* videoPlayFromQueue(void *arg)
 			memcpy(userData->outrgb, p->rgba, p_state->screen_width*p_state->screen_height*4);
 			//printf("pixbuf memcpy %d %d\n", p_state->screen_width, p_state->screen_height);
 			g_mutex_unlock(&pixbufmutex);
+			diff3 = diff4 = diff5 = 0;
 			gdk_threads_add_idle(invalidate, NULL);
 		}
 		else
