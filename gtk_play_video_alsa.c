@@ -252,8 +252,8 @@ void init_ogl(CUBE_STATE_T *state)
 
     //p_state->screen_width = pCodecCtx->width;
     //p_state->screen_height = pCodecCtx->height;
-    p_state->screen_width = 1280;
-    p_state->screen_height = 720;
+    p_state->screen_width = 1920; //1280;
+    p_state->screen_height = 1080; //720;
 
 	printf("Screen size = %d * %d\n", pCodecCtx->width, pCodecCtx->height);
 
@@ -700,6 +700,7 @@ void aq_add(struct audioqueue **q,  AVPacket *packet, int64_t label)
 
 	pFrame=av_frame_alloc();
 //printf("av_frame_alloc\n");
+	av_frame_unref(pFrame);
 	if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, packet)) < 0)
 		printf("Error decoding audio frame\n");
 	if (frameFinished)
@@ -898,7 +899,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 int play_period(snd_pcm_t *handle, struct audioqueue *p)
 {
 	snd_pcm_sframes_t avail;
-	int err;
+	int err, framecount;
 
 	//write_status(snd_pcm_state(handle));
 	avail = snd_pcm_avail_update(handle);
@@ -908,20 +909,21 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 
 	if (p->dst_data)
 	{
-	//printf("writing %d\n", dst_bufsize);
-		//err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/4); // snd_pcm_format_width(format)/8*channels
-		err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
-	//printf("snd_pcm_writei err:%d\n", err);
-		av_freep(&(p->dst_data[0]));
+		if (p->dst_data[0])
+		{
+			framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
+			if (framecount)
+				err = snd_pcm_writei(handle, p->dst_data[0], p->dst_bufsize/(snd_pcm_format_width(format)/8*channels));
+//printf("snd_pcm_writei err:%d\n", err);
+			av_freep(&(p->dst_data[0]));
 //printf("av_freep dst_data0\n");
-
+		}
 		av_freep(&(p->dst_data));
 //printf("av_freep\n");
 	}
 
-	//av_free_packet(p->packet);
 	av_packet_unref(p->packet);
-//printf("av_packet_unref\n");
+	av_free(p->packet);
 	free(p);
 
 	if (err == -EAGAIN)
@@ -947,18 +949,8 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 	struct audioqueue *p;
 	int err;
 
-/*
-	int frameFinished;
-	AVFrame *pFrame = NULL;
-	uint8_t **dst_data = NULL;
-	int line_size;
-	int ret;
-*/
-
 	while(1)
 	{
-		//pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-		//pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 		if ((p = aq_remove(&aq)) == NULL)
 		{
 			break;
@@ -967,48 +959,6 @@ static int write_loop(snd_pcm_t *handle, signed short *samples, snd_pcm_channel_
 // play 1 period
         err=play_period(handle, p);
 		if (err);
-/*
-		if ((ret = avcodec_decode_audio4(pCodecCtxA, pFrame, &frameFinished, p->packet)) < 0)
-		{
-			fprintf(stderr, "Error decoding audio frame\n");
-		}
-		//printf("avcodec_decode_audio4\n");
-
-		if(frameFinished)
-		{
-			ret = av_samples_alloc_array_and_samples(&dst_data, &line_size, pCodecCtxA->channels, pFrame->nb_samples, AV_SAMPLE_FMT_S16, 0);
-			//printf("av_samples_alloc_array_and_samples, %d\n", ret);
-			ret = swr_convert(swr, dst_data, pFrame->nb_samples, pFrame->extended_data, pFrame->nb_samples);
-			if (ret<0) printf("swr_convert error %d\n", ret);
-			//printf("swr_convert, %d", ret);
-			int dst_bufsize = av_samples_get_buffer_size(&line_size, pCodecCtxA->channels, ret, AV_SAMPLE_FMT_S16, 1);
-
-
-			//printf("writing %d\n", dst_bufsize);
-			err = snd_pcm_writei(handle, dst_data[0], dst_bufsize);
-			//printf("snd_pcm_writei err:%d\n", err);
-			if (dst_data)
-				av_freep(&dst_data[0]);
-			av_freep(&dst_data);
-
-			if (err == -EAGAIN)
-			{
-				av_free_packet(p->packet);
-				free(p);
-				continue;
-			}
-			if (err < 0)
-			{
-				if (xrun_recovery(handle, err) < 0)
-				{
-					printf("Write error: %s\n", snd_strerror(err));
-					exit(EXIT_FAILURE);
-				}
-				//break;  // skip one period
-			}
-		}
-*/
-// play
 	}
 	return(0);
 }
@@ -1477,12 +1427,6 @@ int open_file(char * filename)
 	if(avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		return -1; // Could not open video codec
 
-	//sws_ctx=sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
-/*
-    sws_context = sws_getCachedContext(sws_context, frame->width, frame->height, AV_PIX_FMT_YUV420P, frame2->width, frame2->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
-    sws_scale(sws_context, (const uint8_t * const *)frame->data, frame->linesize, 0, frame->height, frame2->data, frame2->linesize);
-*/
-
 	AVStream *st = pFormatCtx->streams[videoStream];
     double frame_rate = st->avg_frame_rate.num / (double)st->avg_frame_rate.den;
 //    printf("Frame rate = %2.2f\n", frame_rate);
@@ -1567,6 +1511,7 @@ static gpointer read_frames(gpointer args)
 		{
 //printf("videoStream %d\n", j); printf("vqlength %d\n", vqLength);
 //get_first_time_microseconds_2();
+			av_frame_unref(pFrame);
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, packet); // Decode video frame
 //long diff2=get_next_time_microseconds_2();
 //printf("%lu usec avcodec_decode_video2\n", diff2);
@@ -1603,6 +1548,20 @@ static gpointer read_frames(gpointer args)
 
 	av_packet_unref(packet);
 //printf("av_packet_unref\n");
+	av_free(packet);
+
+	if (videoStream!=-1)
+	{
+		avcodec_flush_buffers(pCodecCtx);
+		avcodec_close(pFormatCtx->streams[videoStream]->codec);
+		//av_free(pCodecCtx);
+	}
+	if (audioStream!=-1)
+	{
+		avcodec_flush_buffers(pCodecCtxA);
+		avcodec_close(pFormatCtx->streams[audioStream]->codec);
+		//av_free(pCodecCtxA);
+	}
 
 	avformat_close_input(&pFormatCtx);
 	avformat_network_deinit();
@@ -1629,12 +1588,6 @@ static gpointer read_frames(gpointer args)
 	close_sound();
 
 	free(swr);
-
-/*
-	g_mutex_lock(&pixbufmutex);
-	begindrawcallback = 0;
-	g_mutex_unlock(&pixbufmutex);
-*/
 
 	playerstatus = idle;
 
@@ -1700,7 +1653,7 @@ void* videoPlayFromQueue(void *arg)
 			diff-=frametime;
 			if (diff<0)
 			{
-				//usleep(0-diff);
+				usleep(0-diff);
 				diff = 0;
 			}
 //printf("skip %d\n", p->label);
@@ -1709,27 +1662,30 @@ void* videoPlayFromQueue(void *arg)
 //printf("free rgba\n");
 			av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
+			av_free(p->packet);
 			free(p);
 //printf("free vq\n");
 
 			continue;
 		}
 
-//get_first_time_microseconds();
+get_first_time_microseconds();
 		texImage2D(p->rgba, width/4, height*3/2);
-//long diff=get_next_time_microseconds();
+long diff1=get_next_time_microseconds();
 //printf("%lu usec texImage2D\n", diff);
 
-//get_first_time_microseconds();
+get_first_time_microseconds();
 		redraw_scene(p_state);
 		glFinish();
-//diff=get_next_time_microseconds();
+long diff2=get_next_time_microseconds();
 //printf("%lu usec redraw\n", diff);
 
-		diff -= frametime - 1000;
+		diff = diff1 + diff2 + 1000;
+		diff -= frametime;
 		if (diff<0)
 		{
-			//usleep(0-diff);
+			usleep(0-diff);
+//printf("usleep %d\n", 0-diff);
 			diff = 0;
 		}
 
@@ -1737,6 +1693,7 @@ void* videoPlayFromQueue(void *arg)
 //printf("free rgba\n");
 		av_packet_unref(p->packet);
 //printf("av_packet_unref\n");
+		av_free(p->packet);
 		free(p);
 //printf("free vq\n");
 	}
