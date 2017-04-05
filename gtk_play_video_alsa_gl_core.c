@@ -62,7 +62,8 @@ GtkWidget *button_box;
 GtkWidget *button1;
 GtkWidget *button2;
 GtkWidget *button8;
-GtkWidget *buttonEQshowhide;
+GtkWidget *button9;
+GtkWidget *button10;
 GtkWidget *buttonParameters;
 GtkWidget *dwgarea;
 GtkAdjustment *hadjustment;
@@ -75,7 +76,6 @@ GtkWidget *playlistbox;
 GtkWidget *button_box2;
 GtkWidget *button3;
 GtkWidget *button4;
-GtkWidget *button5;
 GtkWidget *button6;
 GtkWidget *button7;
 GtkWidget *listview;
@@ -151,10 +151,12 @@ GtkWidget *combopreset;
 GtkWidget *windowparm;
 GtkWidget *parmvbox;
 GtkWidget *parmhbox1;
-GtkWidget *parmlabel1;
+GtkWidget *parmlabel11;
+GtkWidget *parmlabel12;
 GtkWidget *spinbutton1;
 GtkWidget *parmhbox2;
-GtkWidget *parmlabel2;
+GtkWidget *parmlabel21;
+GtkWidget *parmlabel22;
 GtkWidget *spinbutton2;
 GtkWidget *parmhbox3;
 GtkWidget *parmlabel3;
@@ -184,6 +186,8 @@ char leveltext4[10];
 char leveltext5[10];
 char leveltext6[10];
 char leveltext7[10];
+char leveltext8[10];
+char leveltext9[10];
 
 GMutex pixbufmutex;
 
@@ -931,7 +935,7 @@ void redraw_scene(CUBE_STATE_T *state)
    // Clear the color buffer
    glClear(GL_COLOR_BUFFER_BIT);
    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
-   //glFinish();
+   glFinish();
    eglSwapBuffers(p_state->display, p_state->surface);
 }
 
@@ -1059,7 +1063,7 @@ struct audioqueue* aq_remove(struct audioqueue **q)
 	pthread_mutex_lock(&aqmutex);
 	while((*q)==NULL) // queue empty
 	{
-		if (playerstatus==playing)
+		if ((playerstatus==playing) || (playerstatus==paused))
 		{
 		//printf("Audio queue sleeping, underrun\n");
 		pthread_cond_wait(&aqlowcond, &aqmutex);
@@ -1070,6 +1074,7 @@ struct audioqueue* aq_remove(struct audioqueue **q)
 	switch (playerstatus)
 	{
 		case playing:
+		case paused:
 			p = aq_remove_element(q);
 			aqLength--;
 			break;
@@ -1516,6 +1521,8 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
         return err;
 }
 
+gboolean setLevel8(gpointer data);
+
 int play_period(snd_pcm_t *handle, struct audioqueue *p)
 {
 	snd_pcm_sframes_t avail;
@@ -1546,6 +1553,9 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 			if (!(p->label%10))
 				gdk_threads_add_idle(update_hscale, NULL);
 		}
+
+		if (!(p->label%10))
+			gdk_threads_add_idle(setLevel8, &aqLength);
 	}
 	else
 		err = 0;
@@ -1919,7 +1929,7 @@ struct videoqueue* vq_remove(struct videoqueue **q)
 	pthread_mutex_lock(&vqmutex);
 	while((*q)==NULL) // queue empty
 	{
-		if (playerstatus==playing)
+		if ((playerstatus==playing) || (playerstatus==paused))
 		{
 			//printf("Video queue sleeping, underrun\n");
 			pthread_cond_wait(&vqlowcond, &vqmutex);
@@ -1930,6 +1940,7 @@ struct videoqueue* vq_remove(struct videoqueue **q)
 	switch (playerstatus)
 	{
 		case playing:
+		case paused:
 			p = vq_remove_element(q);
 			vqLength--;
 			break;
@@ -2278,9 +2289,11 @@ int open_file(char * filename)
 
 gboolean enable_play_button(gpointer data)
 {
-	gtk_widget_set_sensitive (button2, FALSE);
-	gtk_widget_set_sensitive (button8, FALSE);
-	gtk_widget_set_sensitive (button1, TRUE);
+	gtk_widget_set_sensitive(button2, FALSE);
+	gtk_widget_set_sensitive(button8, FALSE);
+	gtk_widget_set_sensitive(button9, FALSE);
+	gtk_widget_set_sensitive(button10, FALSE);
+	gtk_widget_set_sensitive(button1, TRUE);
 	return FALSE;
 }
 
@@ -2333,6 +2346,18 @@ gboolean setLevel7(gpointer data)
 	gtk_label_set_text(GTK_LABEL(label7), leveltext7);
 	return FALSE;
 }
+gboolean setLevel8(gpointer data)
+{
+	sprintf(leveltext8, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(parmlabel12), leveltext8);
+	return FALSE;
+}
+gboolean setLevel9(gpointer data)
+{
+	sprintf(leveltext9, "%d", *((int*)data));
+	gtk_label_set_text(GTK_LABEL(parmlabel22), leveltext9);
+	return FALSE;
+}
 
 void resetLevels()
 {
@@ -2347,6 +2372,7 @@ void resetLevels()
 	gdk_threads_add_idle(setLevel7, &diff7);
 }
 
+gboolean play_prev(gpointer data);
 gboolean play_next(gpointer data);
 
 static gpointer read_frames(gpointer args)
@@ -2595,6 +2621,9 @@ void* videoPlayFromQueue(void *arg)
 		if (videoduration)
 			now_playing_frame = p->label;
 
+		if (!(p->label%10))
+			gdk_threads_add_idle(setLevel9, &vqLength);
+
 		if (diff > 0)
 		{
 			diff-=frametime;
@@ -2605,7 +2634,7 @@ void* videoPlayFromQueue(void *arg)
 			}
 //printf("skip %lld\n", p->label);
 			framesskipped++;
-			diff7 = (framesskipped*100)/now_playing_frame;
+			diff7 = (float)(framesskipped*100)/(float)now_playing_frame;
 			gdk_threads_add_idle(setLevel7, &diff7);
 
 			free(p->rgba);
@@ -2727,25 +2756,6 @@ void create_thread_framereader()
     err = pthread_setaffinity_np(tid[2], sizeof(cpu_set_t), &(cpu[3]));
     if (err)
     {}
-}
-
-static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
-{
-    /* If you return FALSE in the "delete-event" signal handler,
-     * GTK will emit the "destroy" signal. Returning TRUE means
-     * you don't want the window to be destroyed.
-     * This is useful for popping up 'are you sure you want to quit?'
-     * type dialogs. */
-//g_print ("delete event occurred\n");
-	pthread_mutex_destroy(&eqmutex);
-    return FALSE;
-}
-
-/* Another callback */
-static void destroy(GtkWidget *widget, gpointer data)
-{
-//printf("gtk_main_quit\n");
-    gtk_main_quit();
 }
 
 /* Redraw the screen from the surface. Note that the ::draw
@@ -2930,9 +2940,7 @@ void select_eqpreset(char* id)
 	sqlite3_close(db);
 }
 
-
-/* Called when the windows are realized */
-static void realize_cb(GtkWidget *widget, gpointer data)
+void resize_containers(void)
 {
 	GtkAllocation *alloc = g_new(GtkAllocation, 1);
 	gtk_widget_get_allocation(hscale, alloc);
@@ -2940,6 +2948,25 @@ static void realize_cb(GtkWidget *widget, gpointer data)
 	g_free(alloc);
 	//printf("Scale height %d\n", scaleheight);
 	gtk_widget_set_size_request(scrolled_window, playerWidth, playerHeight+scaleheight);
+
+	gtk_widget_set_size_request(vscaleeq0, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq1, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq2, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq3, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq4, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq5, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq6, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq7, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq8, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeq9, playerWidth/12, playerHeight);
+	gtk_widget_set_size_request(vscaleeqA, playerWidth/12, playerHeight);
+}
+
+/* Called when the windows are realized */
+static void realize_cb(GtkWidget *widget, gpointer data)
+{
+	resize_containers();
+	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
 }
 
 static void button1_clicked(GtkWidget *button, gpointer data)
@@ -2953,6 +2980,8 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 	gtk_widget_set_sensitive(button1, FALSE);
 	gtk_widget_set_sensitive(button2, TRUE);
 	gtk_widget_set_sensitive(button8, TRUE);
+	gtk_widget_set_sensitive(button9, TRUE);
+	gtk_widget_set_sensitive(button10, TRUE);
 
 	// Init Video Queue
 	vq_init(&vq, &vqmutex, &vqlowcond, &vqhighcond);
@@ -3026,7 +3055,7 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 			pos -= 35;
 			strcat(msgtext, txt+pos);
 		}
-		sprintf(msg, "%2.2f fps, %d*%d, %s", frame_rate, pCodecCtx->width, pCodecCtx->height, msgtext);
+		sprintf(msg, "%2.2f fps, %d*%d, %s (%02i:%02i)", frame_rate, pCodecCtx->width, pCodecCtx->height, msgtext, ((int)(videoduration/frame_rate))/60, ((int)(videoduration/frame_rate)%60));
 	}
 	else
 	{
@@ -3040,21 +3069,23 @@ static void button1_clicked(GtkWidget *button, gpointer data)
 			pos -= 45;
 			strcat(msgtext, txt+pos);
 		}
-		sprintf(msg, "%s", msgtext);
+		sprintf(msg, "%s (%02i:%02i)", msgtext, ((int)(audioduration/sample_rate))/60, ((int)(audioduration/sample_rate)%60));
 	}
 	push_message(statusbar, context_id, msg);
 
 	gtk_window_resize(GTK_WINDOW(window), 100, 100);
-	realize_cb(window, data);
+	resize_containers();
 }
 
 static void button2_clicked(GtkWidget *button, gpointer data)
 {
 //g_print("Button 2 clicked\n");
 	stoprequested = 1;
-	gtk_widget_set_sensitive (button2, FALSE);
-	gtk_widget_set_sensitive (button8, FALSE);
-	gtk_widget_set_sensitive (button1, TRUE);
+	gtk_widget_set_sensitive(button2, FALSE);
+	gtk_widget_set_sensitive(button8, FALSE);
+	gtk_widget_set_sensitive(button9, FALSE);
+	gtk_widget_set_sensitive(button10, FALSE);
+	gtk_widget_set_sensitive(button1, TRUE);
 }
 
 static void button8_clicked(GtkWidget *button, gpointer data)
@@ -3064,6 +3095,38 @@ static void button8_clicked(GtkWidget *button, gpointer data)
 	while(!(playerstatus == idle))
 		usleep(100000); // 0.1s
 	play_next(NULL);
+}
+
+static void button9_clicked(GtkWidget *button, gpointer data)
+{
+//g_print("Button 9 clicked\n");
+	stoprequested = 1;
+	while(!(playerstatus == idle))
+		usleep(100000); // 0.1s
+	play_prev(NULL);
+}
+
+static void button10_clicked(GtkWidget *button, gpointer data)
+{
+//g_print("Button 10 clicked\n");
+	if (playerstatus==playing)
+	{
+		pthread_mutex_lock(&seekmutex);
+		playerstatus = paused;
+		gtk_button_set_label(GTK_BUTTON(button10), "Resume");
+		gtk_widget_set_sensitive(button2, FALSE);
+		gtk_widget_set_sensitive(button8, FALSE);
+		gtk_widget_set_sensitive(button9, FALSE);
+	}
+	else
+	{
+		gtk_widget_set_sensitive(button2, TRUE);
+		gtk_widget_set_sensitive(button8, TRUE);
+		gtk_widget_set_sensitive(button9, TRUE);
+		gtk_button_set_label(GTK_BUTTON(button10), "Pause");
+		playerstatus = playing;
+		pthread_mutex_unlock(&seekmutex);
+	}
 }
 
 /*
@@ -3175,6 +3238,14 @@ void listview_onRowActivated(GtkTreeView *treeview, GtkTreePath *path, GtkTreeVi
 	GtkTreeModel *model;
 	GtkTreeIter iter;
 	//gchar *s;
+
+	if (playerstatus==paused)
+	{
+		stoprequested = 1;
+		playerstatus = playing;
+		gtk_button_set_label(GTK_BUTTON(button10), "Pause");
+		pthread_mutex_unlock(&seekmutex);
+	}
 
 //g_print("double-clicked\n");
 	model = gtk_tree_view_get_model(treeview);
@@ -3293,41 +3364,16 @@ void listdir(const char *name, sqlite3 *db, int *id)
 	closedir(dir);
 }
 
-static void button5_clicked(GtkWidget *button, gpointer data)
+static void button6_clicked(GtkWidget *button, gpointer data)
 {
+	GtkWidget *dialog;
+	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+
 	char *err_msg = NULL;
 	sqlite3 *db;
 	char *sql;
 	int rc;
 	int id;
-
-	if ((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
-	{
-		printf("Can't open database: %s\n", sqlite3_errmsg(db));
-	}
-	else
-	{
-//printf("Opened database successfully\n");
-		sql = "DELETE FROM mediafiles;";
-		if ((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
-		{
-			printf("Failed to delete data, %s\n", err_msg);
-			sqlite3_free(err_msg);
-		}
-		else
-		{
-// success
-		}
-		id = 0;
-		listdir(catalog_folder, db, &id);
-	}
-	sqlite3_close(db);
-}
-
-static void button6_clicked(GtkWidget *button, gpointer data)
-{
-	GtkWidget *dialog;
-	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
 
 	if (!catalog_folder)
 	{
@@ -3340,7 +3386,29 @@ static void button6_clicked(GtkWidget *button, gpointer data)
 	{
 		GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
 		catalog_folder = gtk_file_chooser_get_filename(chooser);
-//printf("%s\n", catalog_folder);
+
+		if ((rc = sqlite3_open("/var/sqlite3DATA/mediaplayer.db", &db)))
+		{
+			printf("Can't open database: %s\n", sqlite3_errmsg(db));
+		}
+		else
+		{
+//printf("Opened database successfully\n");
+			sql = "DELETE FROM mediafiles;";
+			if ((rc = sqlite3_exec(db, sql, 0, 0, &err_msg)) != SQLITE_OK)
+			{
+				printf("Failed to delete data, %s\n", err_msg);
+				sqlite3_free(err_msg);
+			}
+			else
+			{
+// success
+			}
+			id = 0;
+			listdir(catalog_folder, db, &id);
+		}
+		sqlite3_close(db);
+
 	}
 	gtk_widget_destroy (dialog);
 }
@@ -3490,6 +3558,49 @@ gboolean play_next(gpointer data)
 	return FALSE;
 }
 
+gboolean play_prev(gpointer data)
+{
+	GtkTreeModel *model;
+	GtkTreeSelection *selection;
+	GtkTreeIter iter;
+
+	model = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
+	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(listview));
+
+	gtk_tree_selection_get_selected(selection, &model, &iter);
+	if (gtk_tree_model_iter_previous(model, &iter))
+	{
+		gtk_tree_selection_select_iter(selection, &iter);
+	}
+	else
+	{
+		gint nodecount = gtk_tree_model_iter_n_children (model, NULL);
+		if (nodecount)
+		{
+			if (gtk_tree_model_iter_nth_child (model, &iter, NULL, nodecount-1))
+			{
+				gtk_tree_selection_select_iter(selection, &iter);
+			}
+			else
+			{
+				printf("no entries\n");
+				return FALSE;
+			}
+		}
+	}
+
+	if (now_playing)
+	{
+		g_free(now_playing);
+		now_playing = NULL;
+	}
+	gtk_tree_model_get(model, &iter, COL_FILEPATH, &now_playing, -1);
+	//g_print("Next %s\n", now_playing);
+
+	button1_clicked(button1, NULL);
+	return FALSE;
+}
+
 /* seek to exact packet
 void AV_seek(AV * av, size_t frame)
 {
@@ -3602,17 +3713,6 @@ gchar* scale_valuepreamp(GtkScale *scale, gdouble value, gpointer user_data)
 	return g_strdup_printf("%0.2f", 1.0-value);
 }
 
-static gboolean delete_event_eq(GtkWidget *widget, GdkEvent *event, gpointer data)
-{
-    /* If you return FALSE in the "delete-event" signal handler,
-     * GTK will emit the "destroy" signal. Returning TRUE means
-     * you don't want the window to be destroyed.
-     * This is useful for popping up 'are you sure you want to quit?'
-     * type dialogs. */
-//g_print ("delete event occurred\n");
-    return TRUE;
-}
-
 int select_eqpresetnames_callback(void *NotUsed, int argc, char **argv, char **azColName) 
 {
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combopreset), argv[0], argv[12]);
@@ -3647,12 +3747,6 @@ void select_eqpreset_names()
 	sqlite3_close(db);
 }
 
-/* Called when the windows are realized */
-static void realize_eq(GtkWidget *widget, gpointer data)
-{
-	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
-}
-
 static void preset_changed(GtkWidget *combo, gpointer data)
 {
 	gchar *strval;
@@ -3669,38 +3763,6 @@ static void eq_toggled(GtkWidget *togglebutton, gpointer data)
 	eqenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
 	pthread_mutex_unlock(&eqmutex);
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(eqenable)));
-}
-
-static void buttonEQshowhide_clicked(GtkWidget *button, gpointer data)
-{
-	if (gtk_widget_get_visible(windoweq))
-		gtk_widget_hide(windoweq);
-	else
-		gtk_widget_show_all(windoweq);
-}
-
-static void buttonParameters_clicked(GtkWidget *button, gpointer data)
-{
-	if (gtk_widget_get_visible(windowparm))
-		gtk_widget_hide(windowparm);
-	else
-		gtk_widget_show_all(windowparm);
-}
-
-static gboolean delete_event_parm(GtkWidget *widget, GdkEvent *event, gpointer data)
-{
-    /* If you return FALSE in the "delete-event" signal handler,
-     * GTK will emit the "destroy" signal. Returning TRUE means
-     * you don't want the window to be destroyed.
-     * This is useful for popping up 'are you sure you want to quit?'
-     * type dialogs. */
-//g_print ("delete event occurred\n");
-    return TRUE;
-}
-
-/* Called when the windows are realized */
-static void realize_parm(GtkWidget *widget, gpointer data)
-{
 }
 
 static void aqmaxlength_changed(GtkWidget *widget, gpointer data)
@@ -3737,6 +3799,50 @@ static void threadcount_changed(GtkWidget *widget, gpointer data)
 static void playerwidth_changed(GtkWidget *widget, gpointer data)
 {
 	playerWidth = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton4));
+}
+
+static gboolean delete_event(GtkWidget *widget, GdkEvent *event, gpointer data)
+{
+//g_print ("delete event occurred\n");
+	if (!(playerstatus == idle))
+	{
+		button2_clicked(button2, NULL);
+		while(!(playerstatus == idle))
+			usleep(100000); // 0.1s
+	}
+	pthread_mutex_destroy(&eqmutex);
+    return FALSE; // return FALSE to emit destroy signal
+}
+
+static void destroy(GtkWidget *widget, gpointer data)
+{
+//printf("gtk_main_quit\n");
+    gtk_main_quit();
+}
+
+static void buttonParameters_clicked(GtkWidget *button, gpointer data)
+{
+	if (gtk_widget_get_visible(windowparm))
+		gtk_widget_hide(windowparm);
+	else
+		gtk_widget_show_all(windowparm);
+}
+
+static gboolean delete_event_parm(GtkWidget *widget, GdkEvent *event, gpointer data)
+{
+    /* If you return FALSE in the "delete-event" signal handler,
+     * GTK will emit the "destroy" signal. Returning TRUE means
+     * you don't want the window to be destroyed.
+     * This is useful for popping up 'are you sure you want to quit?'
+     * type dialogs. */
+//g_print ("delete event occurred\n");
+	buttonParameters_clicked(buttonParameters, NULL);
+    return TRUE;
+}
+
+/* Called when the windows are realized */
+static void realize_parm(GtkWidget *widget, gpointer data)
+{
 }
 
 int main(int argc, char** argv)
@@ -3823,10 +3929,22 @@ int main(int argc, char** argv)
     gtk_button_box_set_layout((GtkButtonBox *)button_box, GTK_BUTTONBOX_START);
     gtk_container_add(GTK_CONTAINER(horibox), button_box);
 
+// button prev
+    button9 = gtk_button_new_with_label("Prev");
+    gtk_widget_set_sensitive (button9, FALSE);
+    g_signal_connect(GTK_BUTTON(button9), "clicked", G_CALLBACK(button9_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box), button9);
+
 // button play
     button1 = gtk_button_new_with_label("Play");
     g_signal_connect(GTK_BUTTON(button1), "clicked", G_CALLBACK(button1_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box), button1);
+
+// button pause/resume
+    button10 = gtk_button_new_with_label("Pause");
+    gtk_widget_set_sensitive (button10, FALSE);
+    g_signal_connect(GTK_BUTTON(button10), "clicked", G_CALLBACK(button10_clicked), NULL);
+    gtk_container_add(GTK_CONTAINER(button_box), button10);
 
 // button next
     button8 = gtk_button_new_with_label("Next");
@@ -3839,11 +3957,6 @@ int main(int argc, char** argv)
     gtk_widget_set_sensitive (button2, FALSE);
     g_signal_connect(GTK_BUTTON(button2), "clicked", G_CALLBACK(button2_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box), button2);
-
-// button show/hide EQ
-    buttonEQshowhide = gtk_button_new_with_label("EQ");
-    g_signal_connect(GTK_BUTTON(buttonEQshowhide), "clicked", G_CALLBACK(buttonEQshowhide_clicked), NULL);
-    gtk_container_add(GTK_CONTAINER(button_box), buttonEQshowhide);
 
 // button Parameters
     buttonParameters = gtk_button_new_with_label("AV");
@@ -3872,13 +3985,9 @@ int main(int argc, char** argv)
     g_signal_connect(GTK_BUTTON(button3), "clicked", G_CALLBACK(button3_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box2), button3);
 
-    button6 = gtk_button_new_with_label("Set Catalog Folder");
+    button6 = gtk_button_new_with_label("Catalog");
     g_signal_connect(GTK_BUTTON(button6), "clicked", G_CALLBACK(button6_clicked), NULL);
     gtk_container_add(GTK_CONTAINER(button_box2), button6);
-
-    button5 = gtk_button_new_with_label("Catalog");
-    g_signal_connect(GTK_BUTTON(button5), "clicked", G_CALLBACK(button5_clicked), NULL);
-    gtk_container_add(GTK_CONTAINER(button_box2), button5);
 
     button7 = gtk_button_new_with_label("Add File");
     g_signal_connect(GTK_BUTTON(button7), "clicked", G_CALLBACK(button7_clicked), NULL);
@@ -3889,42 +3998,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(button_box2), button4);
 // box2 contents end
 
-// stack switcher
-    stack = gtk_stack_new();
-    stackswitcher = gtk_stack_switcher_new ();
-    gtk_stack_switcher_set_stack (GTK_STACK_SWITCHER(stackswitcher), GTK_STACK(stack));
-    gtk_container_add(GTK_CONTAINER(playerbox), stackswitcher);
-    gtk_container_add(GTK_CONTAINER(playerbox), stack);
-
-    gtk_stack_add_titled(GTK_STACK(stack), box1, "box1", "Player");
-    gtk_stack_add_titled(GTK_STACK(stack), box2, "box2", "Playlist");
-
-    statusbar = gtk_statusbar_new();
-    gtk_container_add(GTK_CONTAINER(playerbox), statusbar);
-    push_message(statusbar, context_id, "");
-
-    gtk_widget_show_all(window);
-//printf("Show window\n");
-
-    /* create a new window for EQ */
-    windoweq = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_position(GTK_WINDOW(windoweq), GTK_WIN_POS_CENTER);
-    /* When the window is given the "delete-event" signal (this is given
-     * by the window manager, usually by the "close" option, or on the
-     * titlebar), we ask it to call the delete_event () function
-     * as defined above. The data passed to the callback
-     * function is NULL and is ignored in the callback function. */
-    g_signal_connect (windoweq, "delete-event", G_CALLBACK(delete_event_eq), NULL);
-	g_signal_connect (windoweq, "realize", G_CALLBACK (realize_eq), NULL);
-
-    gtk_container_set_border_width (GTK_CONTAINER (windoweq), 2);
-	gtk_widget_set_size_request(windoweq, 100, 100);
-	gtk_window_set_title(GTK_WINDOW(windoweq), "Audio Equalizer");
-	gtk_window_set_resizable(GTK_WINDOW(windoweq), FALSE);
-
+// eqvbox contents begin
 // vertical box
     eqvbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
-    gtk_container_add(GTK_CONTAINER(windoweq), eqvbox);
 
 // horizontal box    
     eqbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
@@ -3938,10 +4014,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq0), 1);
     g_signal_connect(vscaleeq0, "value-changed", G_CALLBACK(vscale0), NULL);
 	g_signal_connect(vscaleeq0, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox0), vscaleeq0);
-    gtk_widget_set_size_request(vscaleeq0, 40, 200);
 	eqlabel0 = gtk_label_new(eqlabels[0]);
 	gtk_container_add(GTK_CONTAINER(eqbox0), eqlabel0);
 
@@ -3953,10 +4026,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq1), 1);
     g_signal_connect(vscaleeq1, "value-changed", G_CALLBACK(vscale1), NULL);
 	g_signal_connect(vscaleeq1, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox1), vscaleeq1);
-    gtk_widget_set_size_request(vscaleeq1, 40, 200);
 	eqlabel1 = gtk_label_new(eqlabels[1]);
 	gtk_container_add(GTK_CONTAINER(eqbox1), eqlabel1);
 
@@ -3968,10 +4038,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq2), 1);
     g_signal_connect(vscaleeq2, "value-changed", G_CALLBACK(vscale2), NULL);
 	g_signal_connect(vscaleeq2, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox2), vscaleeq2);
-    gtk_widget_set_size_request(vscaleeq2, 40, 200);
 	eqlabel2 = gtk_label_new(eqlabels[2]);
 	gtk_container_add(GTK_CONTAINER(eqbox2), eqlabel2);
 
@@ -3983,10 +4050,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq3), 1);
     g_signal_connect(vscaleeq3, "value-changed", G_CALLBACK(vscale3), NULL);
 	g_signal_connect(vscaleeq3, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox3), vscaleeq3);
-    gtk_widget_set_size_request(vscaleeq3, 40, 200);
 	eqlabel3 = gtk_label_new(eqlabels[3]);
 	gtk_container_add(GTK_CONTAINER(eqbox3), eqlabel3);
 
@@ -3998,10 +4062,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq4), 1);
     g_signal_connect(vscaleeq4, "value-changed", G_CALLBACK(vscale4), NULL);
 	g_signal_connect(vscaleeq4, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox4), vscaleeq4);
-    gtk_widget_set_size_request(vscaleeq4, 40, 200);
 	eqlabel4 = gtk_label_new(eqlabels[4]);
 	gtk_container_add(GTK_CONTAINER(eqbox4), eqlabel4);
 
@@ -4013,10 +4074,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq5), 1);
     g_signal_connect(vscaleeq5, "value-changed", G_CALLBACK(vscale5), NULL);
 	g_signal_connect(vscaleeq5, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox5), vscaleeq5);
-    gtk_widget_set_size_request(vscaleeq5, 40, 200);
 	eqlabel5 = gtk_label_new(eqlabels[5]);
 	gtk_container_add(GTK_CONTAINER(eqbox5), eqlabel5);
 
@@ -4028,10 +4086,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq6), 1);
     g_signal_connect(vscaleeq6, "value-changed", G_CALLBACK(vscale6), NULL);
 	g_signal_connect(vscaleeq6, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox6), vscaleeq6);
-    gtk_widget_set_size_request(vscaleeq6, 40, 200);
 	eqlabel6 = gtk_label_new(eqlabels[6]);
 	gtk_container_add(GTK_CONTAINER(eqbox6), eqlabel6);
 
@@ -4043,10 +4098,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq7), 1);
     g_signal_connect(vscaleeq7, "value-changed", G_CALLBACK(vscale7), NULL);
 	g_signal_connect(vscaleeq7, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox7), vscaleeq7);
-    gtk_widget_set_size_request(vscaleeq7, 40, 200);
 	eqlabel7 = gtk_label_new(eqlabels[7]);
 	gtk_container_add(GTK_CONTAINER(eqbox7), eqlabel7);
 
@@ -4058,10 +4110,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq8), 1);
     g_signal_connect(vscaleeq8, "value-changed", G_CALLBACK(vscale8), NULL);
 	g_signal_connect(vscaleeq8, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox8), vscaleeq8);
-    gtk_widget_set_size_request(vscaleeq8, 40, 200);
 	eqlabel8 = gtk_label_new(eqlabels[8]);
 	gtk_container_add(GTK_CONTAINER(eqbox8), eqlabel8);
 
@@ -4073,10 +4122,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeq9), 1);
     g_signal_connect(vscaleeq9, "value-changed", G_CALLBACK(vscale9), NULL);
 	g_signal_connect(vscaleeq9, "format-value", G_CALLBACK(scale_valueformat), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox9), vscaleeq9);
-    gtk_widget_set_size_request(vscaleeq9, 40, 200);
 	eqlabel9 = gtk_label_new(eqlabels[9]);
 	gtk_container_add(GTK_CONTAINER(eqbox9), eqlabel9);
 
@@ -4088,10 +4134,7 @@ int main(int argc, char** argv)
     gtk_scale_set_digits(GTK_SCALE(vscaleeqA), 2);
     g_signal_connect(vscaleeqA, "value-changed", G_CALLBACK(vscaleA), NULL);
 	g_signal_connect(vscaleeqA, "format-value", G_CALLBACK(scale_valuepreamp), NULL);
-    //g_signal_connect(hscale, "button-press-event", G_CALLBACK(scale_pressed), NULL);
-    //g_signal_connect(hscale, "button-release-event", G_CALLBACK(scale_released), NULL);
     gtk_container_add(GTK_CONTAINER(eqboxA), vscaleeqA);
-    gtk_widget_set_size_request(vscaleeqA, 40, 200);
 	eqlabelA = gtk_label_new("Preamp");
 	gtk_container_add(GTK_CONTAINER(eqboxA), eqlabelA);
 
@@ -4107,13 +4150,21 @@ int main(int argc, char** argv)
 
 // combobox
     combopreset = gtk_combo_box_text_new();
-    //gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT (combopreset), "0", "Custom");
     select_eqpreset_names();
     g_signal_connect(GTK_COMBO_BOX(combopreset), "changed", G_CALLBACK(preset_changed), NULL);
     gtk_container_add(GTK_CONTAINER(eqbox2), combopreset);
+// eqvbox contents end
 
-    gtk_widget_show_all(windoweq);
-    gtk_widget_hide(windoweq);
+// stack switcher
+    stack = gtk_stack_new();
+    stackswitcher = gtk_stack_switcher_new();
+    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(stackswitcher), GTK_STACK(stack));
+    gtk_container_add(GTK_CONTAINER(playerbox), stackswitcher);
+    gtk_container_add(GTK_CONTAINER(playerbox), stack);
+
+    gtk_stack_add_titled(GTK_STACK(stack), box1, "box1", "Player");
+    gtk_stack_add_titled(GTK_STACK(stack), box2, "box2", "Playlist");
+    gtk_stack_add_titled(GTK_STACK(stack), eqvbox, "eqvbox", "Equalizer");
 
 
     /* create a new window for AV Parameters */
@@ -4140,9 +4191,12 @@ int main(int argc, char** argv)
 	parmhbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
 	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox1);
 // audio queue max length
-	parmlabel1 = gtk_label_new("Audio Queue Max Length");
-	gtk_widget_set_size_request(parmlabel1, 200, 30);
-	gtk_container_add(GTK_CONTAINER(parmhbox1), parmlabel1);
+	parmlabel11 = gtk_label_new("AQ Length");
+	gtk_widget_set_size_request(parmlabel11, 170, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox1), parmlabel11);
+	parmlabel12 = gtk_label_new("0");
+	gtk_widget_set_size_request(parmlabel12, 30, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox1), parmlabel12);
 	spinbutton1 = gtk_spin_button_new_with_range (10.0, 100.0, 1.0);
 	gtk_widget_set_size_request(spinbutton1, 120, 30);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton1), aqMaxLength);
@@ -4153,9 +4207,12 @@ int main(int argc, char** argv)
 	parmhbox2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
 	gtk_container_add(GTK_CONTAINER(parmvbox), parmhbox2);
 // video queue max length
-	parmlabel2 = gtk_label_new("Video Queue Max Length");
-	gtk_widget_set_size_request(parmlabel2, 200, 30);
-	gtk_container_add(GTK_CONTAINER(parmhbox2), parmlabel2);
+	parmlabel21 = gtk_label_new("VQ Length");
+	gtk_widget_set_size_request(parmlabel21, 170, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox2), parmlabel21);
+	parmlabel22 = gtk_label_new("0");
+	gtk_widget_set_size_request(parmlabel22, 30, 30);
+	gtk_container_add(GTK_CONTAINER(parmhbox2), parmlabel22);
 	spinbutton2 = gtk_spin_button_new_with_range (10.0, 100.0, 1.0);
 	gtk_widget_set_size_request(spinbutton2, 120, 30);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton2), vqMaxLength);
@@ -4279,6 +4336,13 @@ int main(int argc, char** argv)
 	label7 = gtk_label_new("0 %");
 	gtk_widget_set_size_request(label7, 50, 30);
 	gtk_container_add(GTK_CONTAINER(parmhlevel7), label7);
+
+    statusbar = gtk_statusbar_new();
+    gtk_container_add(GTK_CONTAINER(playerbox), statusbar);
+    push_message(statusbar, context_id, "");
+
+    gtk_widget_show_all(window);
+//printf("Show window\n");
 
 	gtk_widget_show_all(windowparm);
 	gtk_widget_hide(windowparm);
