@@ -218,6 +218,8 @@ GtkWidget *rvrblabel1;
 GtkWidget *spinbutton7;
 GtkWidget *rvrblabel2;
 GtkWidget *spinbutton8;
+GtkWidget *rvrblabel3;
+GtkWidget *spinbutton11;
 
 GtkWidget *frametremolo1;
 GtkWidget *tremolobox1;
@@ -226,6 +228,28 @@ GtkWidget *tremololabel1;
 GtkWidget *spinbutton9;
 GtkWidget *tremololabel2;
 GtkWidget *spinbutton10;
+
+GtkWidget *framefd1;
+GtkWidget *fdbox1;
+GtkWidget *fdenable;
+GtkWidget *fdlabel1;
+GtkWidget *spinbutton12;
+GtkWidget *fdlabel2;
+GtkWidget *spinbutton13;
+
+GtkWidget *framemod1;
+GtkWidget *modbox1;
+GtkWidget *modenable;
+GtkWidget *modlabel1;
+GtkWidget *spinbutton14;
+GtkWidget *modlabel2;
+GtkWidget *spinbutton15;
+
+GtkWidget *framecho1;
+GtkWidget *chobox1;
+GtkWidget *choenable;
+GtkWidget *cholabel1;
+GtkWidget *spinbutton16;
 
 char leveltext1[10];
 char leveltext2[10];
@@ -1246,6 +1270,38 @@ struct biquad bqLeft[EQBANDS], bqRight[EQBANDS];
 float eqoctave = 1.0;
 pthread_mutex_t eqmutex; // = PTHREAD_MUTEX_INITIALIZER;
 int eqenabled = 1;
+float effgain;
+
+void effectivegain()
+{
+	float value;
+	effgain = 0.0;
+
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq0));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq1));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq2));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq3));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq4));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq5));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq6));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq7));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq8));
+	effgain += pow(10, value/5.0);
+	value = 0.0 - gtk_range_get_value(GTK_RANGE(vscaleeq9));
+	effgain += pow(10, value/5.0);
+
+	effgain=1.0/sqrt(effgain/EQBANDS);
+
+	gtk_range_set_value(GTK_RANGE(vscaleeqA), 16.0-effgain);
+}
 
 /* Computes a BiQuad filter on a sample */
 inline float BiQuad(float sample, struct biquad *b)
@@ -1361,6 +1417,7 @@ static void vscale0(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(LSH, value, eqfreqs[0], (float)rate, eqoctave, &(bqLeft[0]));
 	BiQuad_init(LSH, value, eqfreqs[0], (float)rate, eqoctave, &(bqRight[0]));
+	effectivegain();
 }
 
 static void vscale1(GtkWidget *widget, gpointer data)
@@ -1369,6 +1426,7 @@ static void vscale1(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[1], (float)rate, eqoctave, &(bqLeft[1]));
 	BiQuad_init(PEQ, value, eqfreqs[1], (float)rate, eqoctave, &(bqRight[1]));
+	effectivegain();
 }
 
 static void vscale2(GtkWidget *widget, gpointer data)
@@ -1377,6 +1435,7 @@ static void vscale2(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[2], (float)rate, eqoctave, &(bqLeft[2]));
 	BiQuad_init(PEQ, value, eqfreqs[2], (float)rate, eqoctave, &(bqRight[2]));
+	effectivegain();
 }
 
 static void vscale3(GtkWidget *widget, gpointer data)
@@ -1385,6 +1444,7 @@ static void vscale3(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[3], (float)rate, eqoctave, &(bqLeft[3]));
 	BiQuad_init(PEQ, value, eqfreqs[3], (float)rate, eqoctave, &(bqRight[3]));
+	effectivegain();
 }
 
 static void vscale4(GtkWidget *widget, gpointer data)
@@ -1393,6 +1453,7 @@ static void vscale4(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[4], (float)rate, eqoctave, &(bqLeft[4]));
 	BiQuad_init(PEQ, value, eqfreqs[4], (float)rate, eqoctave, &(bqRight[4]));
+	effectivegain();
 }
 
 static void vscale5(GtkWidget *widget, gpointer data)
@@ -1401,6 +1462,7 @@ static void vscale5(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[5], (float)rate, eqoctave, &(bqLeft[5]));
 	BiQuad_init(PEQ, value, eqfreqs[5], (float)rate, eqoctave, &(bqRight[5]));
+	effectivegain();
 }
 
 static void vscale6(GtkWidget *widget, gpointer data)
@@ -1409,6 +1471,7 @@ static void vscale6(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[6], (float)rate, eqoctave, &(bqLeft[6]));
 	BiQuad_init(PEQ, value, eqfreqs[6], (float)rate, eqoctave, &(bqRight[6]));
+	effectivegain();
 }
 
 static void vscale7(GtkWidget *widget, gpointer data)
@@ -1417,6 +1480,7 @@ static void vscale7(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[7], (float)rate, eqoctave, &(bqLeft[7]));
 	BiQuad_init(PEQ, value, eqfreqs[7], (float)rate, eqoctave, &(bqRight[7]));
+	effectivegain();
 }
 
 static void vscale8(GtkWidget *widget, gpointer data)
@@ -1425,6 +1489,7 @@ static void vscale8(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(PEQ, value, eqfreqs[8], (float)rate, eqoctave, &(bqLeft[8]));
 	BiQuad_init(PEQ, value, eqfreqs[8], (float)rate, eqoctave, &(bqRight[8]));
+	effectivegain();
 }
 
 static void vscale9(GtkWidget *widget, gpointer data)
@@ -1433,6 +1498,7 @@ static void vscale9(GtkWidget *widget, gpointer data)
 //    printf("Adjustment value: %f\n", value);
 	BiQuad_init(HSH, value, eqfreqs[9], (float)rate, eqoctave, &(bqLeft[9]));
 	BiQuad_init(HSH, value, eqfreqs[9], (float)rate, eqoctave, &(bqRight[9]));
+	effectivegain();
 }
 
 static void vscaleA(GtkWidget *widget, gpointer data)
@@ -1472,11 +1538,14 @@ void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample)
 	pthread_mutex_lock(&eqmutex);
 	if (eqenabled)
 	{
-		preampfactor = 1.0 - gtk_range_get_value((GtkRange*)vscaleeqA);
+		preampfactor = 16.0 - gtk_range_get_value((GtkRange*)vscaleeqA);
 		for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
 		{
-			intp[b] *= preampfactor;
-			intp[b+1] *= preampfactor;
+			if (preampfactor < 1.0)
+			{
+				intp[b] *= preampfactor;
+				intp[b+1] *= preampfactor;
+			}
 
 			intp[b] = BiQuad(intp[b], &(bqLeft[0]));
 			intp[b+1] = BiQuad(intp[b+1], &(bqRight[0]));
@@ -1507,6 +1576,12 @@ void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample)
 
 			intp[b] = BiQuad(intp[b], &(bqLeft[9]));
 			intp[b+1] = BiQuad(intp[b+1], &(bqRight[9]));
+			
+			if (preampfactor > 1.0)
+			{
+				intp[b] *= preampfactor;
+				intp[b+1] *= preampfactor;
+			}
 		}
 	}
 	pthread_mutex_unlock(&eqmutex);
@@ -1531,7 +1606,8 @@ struct sounddelay
 	unsigned int rate; // sampling rate
 	unsigned int channels; // channels
 	float feedback; // feedback level 0.0 .. 1.0
-	float millisec; // delay in milliseconds 
+	float millisec; // delay in milliseconds
+	int N; // parallel delays
 
 	int physicalwidth; // bits per sample
 	char *fbuffer;
@@ -1541,7 +1617,7 @@ struct sounddelay
 	int delaybytes;
 	int insamples;
 
-	int front, rear;
+	int front, rear, readfront;
 	signed short *fshort;
 
 	enum dly_type delaytype;
@@ -1549,8 +1625,9 @@ struct sounddelay
 
 struct sounddelay snddly; // Delay
 
-void sounddelay_init(enum dly_type delaytype, float millisec, float feedback, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct sounddelay *s)
+void sounddelay_init(int N, enum dly_type delaytype, float millisec, float feedback, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct sounddelay *s)
 {
+	s->N = N;
 	s->delaytype = delaytype;
 	s->format = format;
 	s->rate = rate;
@@ -1573,18 +1650,19 @@ void sounddelay_add(int delayisenabled, char* inbuffer, int inbuffersize, struct
 		if (!s->fbuffer)
 		{
 			s->physicalwidth = snd_pcm_format_width(s->format);
-			s->insamples = inbuffersize / s->physicalwidth * 8;
+			s->insamples = inbuffersize * 8 / s->physicalwidth;
 			s->delaysamples = ceil((s->millisec / 1000) * (float)s->rate) * s->channels;
 			s->delaybytes = s->delaysamples * s->physicalwidth / 8;
 
 			s->fbuffersize = s->delaybytes + inbuffersize;
 			s->fbuffer = malloc(s->fbuffersize);
 			memset(s->fbuffer, 0, s->fbuffersize);
-			s->fbuffersamples = s->fbuffersize / s->physicalwidth * 8;
+			s->fbuffersamples = s->insamples + s->delaysamples;
 			s->fshort = (signed short *)s->fbuffer;
 
 			s->rear = s->delaysamples;
 			s->front = 0;
+			s->readfront = 0;
 		}
 		inshort = (signed short *)inbuffer;
 
@@ -1592,7 +1670,6 @@ void sounddelay_add(int delayisenabled, char* inbuffer, int inbuffersize, struct
 		{
 			case DLY_ECHO: // Repeating echo added to original
 				prescale = sqrt(1 - s->feedback*s->feedback); // prescale=sqrt(sum(r^2n)), n=0..infinite
-				//prescale = 0.5;
 				for(i=0; i<s->insamples; i++)
 				{
 					inshort[i]*=prescale;
@@ -1613,14 +1690,12 @@ void sounddelay_add(int delayisenabled, char* inbuffer, int inbuffersize, struct
 				}
 				break;
 			case DLY_REVERB: // Only repeating echo, no original
-				prescale = sqrt(1 - s->feedback*s->feedback); // prescale=sqrt(sum(r^2n)), n=0..infinite
-				//prescale = 0.5;
+				//prescale = sqrt(1 - s->feedback*s->feedback); // prescale=sqrt(sum(r^2n)), n=0..infinite
+				prescale = sqrt((1.0-s->feedback*s->feedback)/((s->N-1)*s->feedback*s->feedback+1.0)); // prescale=sqrt(sum(r^2n)-1), for all channels, n=0..infinite
 				for(i=0; i<s->insamples; i++)
 				{
-					inshort[i]*=prescale;
-					unsigned int ori = inshort[i];
-					s->fshort[s->rear++] = inshort[i] += s->fshort[s->front++]*s->feedback;
-					inshort[i]-=ori;
+					//s->fshort[s->rear++] = inshort[i]*prescale + s->fshort[s->front++]*s->feedback;
+					s->fshort[s->rear++] = (inshort[i]*prescale + s->fshort[s->front++])*s->feedback;
 					s->front%=s->fbuffersamples;
 					s->rear%=s->fbuffersamples;
 				}
@@ -1655,7 +1730,7 @@ void Delay_initAll(snd_pcm_format_t format, float rate, unsigned int channels, s
 	s->format = format;
 	s->rate = rate;
 	s->channels = channels;
-	sounddelay_init(s->delaytype, s->millisec, s->feedback, s->format, s->rate, s->channels, s);
+	sounddelay_init(1, s->delaytype, s->millisec, s->feedback, s->format, s->rate, s->channels, s);
 	pthread_mutex_unlock(&delaymutex);
 }
 
@@ -1663,42 +1738,77 @@ void Delay_initAll(snd_pcm_format_t format, float rate, unsigned int channels, s
 int rvrbenabled = 0;
 pthread_mutex_t reverbmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
-#define REVERBDLINES 7
-float reverbprimes[REVERBDLINES] = {290.0, 387.0, 433.0, 470.0, 523.0, 559.0, 643.0};
-//float reverbprimes[REVERBDLINES] = {470.0, 523.0, 559.0, 643.0};
+#define REVERBDLINES 24 //24
+//float reverbprimes[REVERBDLINES] = {290.0, 387.0, 433.0, 470.0, 523.0, 559.0, 643.0};
+//float reverbprimes[REVERBDLINES] = {307.0, 331.0, 353.0, 379.0, 401.0, 431.0, 449.0, 467.0};
+//float reverbprimes[REVERBDLINES] = {293.0, 313.0, 347.0, 367.0, 383.0, 409.0, 431.0, 449.0, 463.0, 491.0, 509.0, 547.0, 569.0, 593.0, 613.0, 631.0};
+float reverbprimes[REVERBDLINES] = {293.0, 307.0, 313.0, 331.0, 347.0, 367.0, 373.0, 383.0, 409.0, 419.0, 431.0, 449.0, 457.0, 463.0, 491.0, 509.0, 547.0, 557.0, 569.0, 577.0, 593.0, 613.0, 619.0, 631.0};
+
+/*
+           293    307    311    313    317    331    337    347    349 
+    353    359    367    373    379    383    389    397    401    409 
+    419    421    431    433    439    443    449    457    461    463 
+    467    479    487    491    499    503    509    521    523    541 
+    547    557    563    569    571    577    587    593    599    601 
+    607    613    617    619    631 
+*/
 
 struct soundreverb
 {
 	struct sounddelay snddlyrev[REVERBDLINES];
-	char* inbuffers[REVERBDLINES];
+	char* bbuf;
 
 	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
 	unsigned int rate; // sampling rate
 	unsigned int channels; // channels
 	float feedback; // feedback level 0.0 .. 1.0
 	float presence; // reverbation presence
+
+	float LPFfreq;
+	struct biquad bl, br;
 };
 
 struct soundreverb sndreverb;
 
-void soundreverb_init(float feedback, float presence, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundreverb *r)
+void RevBiQuad_process(uint8_t *buf, int bufsize, int bytesinsample, struct soundreverb *r)
+{
+	int a, b;
+	signed short *intp;
+	intp=(signed short *)buf;
+	float preampfactor;
+
+	preampfactor = 1.0;
+	for (a=0,b=0;a<bufsize;a+=bytesinsample, b+=2) // process first 2 channels only
+	{
+		intp[b] *= preampfactor;
+		intp[b+1] *= preampfactor;
+
+		intp[b] = BiQuad(intp[b], &(r->bl));
+		intp[b+1] = BiQuad(intp[b+1], &(r->br));
+	}
+}
+
+void soundreverb_init(float feedback, float presence, float LPFf, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundreverb *r)
 {
 	int i;
 	for(i=0; i<REVERBDLINES; i++)
 	{
-		sounddelay_init(DLY_REVERB, reverbprimes[i], feedback, format, rate, channels, &(r->snddlyrev[i]));
-		r->inbuffers[i] = NULL;
+		sounddelay_init(REVERBDLINES, DLY_REVERB, reverbprimes[i], feedback, format, rate, channels, &(r->snddlyrev[i]));
 		r->format = format;
 		r->rate = rate;
 		r->channels = channels;
 		r->feedback = feedback;
 		r->presence = presence;
+		r->LPFfreq = LPFf;
 	}
+	r->bbuf = NULL;
+	BiQuad_init(LPF, 12.0, r->LPFfreq, r->rate, eqoctave, &(r->bl));
+	BiQuad_init(LPF, 12.0, r->LPFfreq, r->rate, eqoctave, &(r->br));
 }
 
 void soundreverb_add(int reverbisenabled, char* inbuffer, int inbuffersize, struct soundreverb *r)
 {
-	int i, j;
+	int i, j, *readfront, *fbsamples;
 	signed short *dstbuf, *srcbuf;
 
 	pthread_mutex_lock(&reverbmutex);
@@ -1706,19 +1816,34 @@ void soundreverb_add(int reverbisenabled, char* inbuffer, int inbuffersize, stru
 	{
 		for(i=0; i<REVERBDLINES; i++)
 		{
-			if (!r->inbuffers[i])
-				r->inbuffers[i] = malloc(inbuffersize);
-			memcpy(r->inbuffers[i], inbuffer, inbuffersize);
-			sounddelay_add(TRUE, r->inbuffers[i], inbuffersize, &(r->snddlyrev[i]));
+			sounddelay_add(TRUE, inbuffer, inbuffersize, &(r->snddlyrev[i]));
 		}
-		dstbuf = (signed short*)inbuffer;
+
+		if (!r->bbuf)
+		{
+			r->bbuf = malloc(inbuffersize);
+		}
+		memset(r->bbuf, 0, inbuffersize);
+		dstbuf = (signed short*)r->bbuf;
 		for(i=0; i<REVERBDLINES; i++)
 		{
-			srcbuf = (signed short*)r->inbuffers[i];
+			srcbuf = (signed short*)r->snddlyrev[i].fbuffer;
+			readfront = &(r->snddlyrev[i].readfront);
+			fbsamples = &(r->snddlyrev[i].fbuffersamples);
 			for(j=0; j<r->snddlyrev[i].insamples; j++)
 			{
-				dstbuf[j] += srcbuf[j] * r->presence / (float)REVERBDLINES;
+				dstbuf[j] += srcbuf[(*readfront)++] * r->presence;
+				(*readfront)%=(*fbsamples);
 			}
+		}
+
+		RevBiQuad_process((uint8_t*)r->bbuf, inbuffersize, snd_pcm_format_width(r->format)/8*r->channels, r);
+
+		dstbuf = (signed short*)inbuffer;
+		srcbuf = (signed short*)r->bbuf;
+		for(j=0; j<r->snddlyrev[0].insamples; j++)
+		{
+			dstbuf[j] += srcbuf[j];
 		}
 	}
 	pthread_mutex_unlock(&reverbmutex);
@@ -1735,11 +1860,11 @@ void soundreverb_close(struct soundreverb *r)
 			free(r->snddlyrev[i].fbuffer);
 			r->snddlyrev[i].fbuffer = NULL;
 		}
-		if (r->inbuffers[i])
-		{
-			free(r->inbuffers[i]);
-			r->inbuffers[i] = NULL;
-		}
+	}
+	if (r->bbuf)
+	{
+		free(r->bbuf);
+		r->bbuf = NULL;
 	}
 }
 
@@ -1748,10 +1873,11 @@ void Reverb_initAll(snd_pcm_format_t format, float rate, unsigned int channels, 
 	pthread_mutex_lock(&reverbmutex);
 	r->feedback = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7));
 	r->presence = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton8));
+	r->LPFfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton11));
 	r->format = format;
 	r->rate = rate;
 	r->channels = channels;
-	soundreverb_init(r->feedback, r->presence, r->format, r->rate, r->channels, r);
+	soundreverb_init(r->feedback, r->presence, r->LPFfreq, r->format, r->rate, r->channels, r);
 	pthread_mutex_unlock(&reverbmutex);
 }
 
@@ -1816,6 +1942,378 @@ void Tremolo_initAll(snd_pcm_format_t format, float rate, unsigned int channels,
 	pthread_mutex_unlock(&tremolomutex);
 }
 
+// Folding Distortion
+int fdenabled = 0;
+pthread_mutex_t fdmutex; // = PTHREAD_MUTEX_INITIALIZER;
+
+struct soundfoldingdistortion
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+	float threshold;
+	float gain;
+
+	int initialized;
+	int physicalwidth;
+	int insamples;
+};
+
+struct soundfoldingdistortion sndflddistort;
+
+void soundfoldingdistort_init(float threshold, float gain, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundfoldingdistortion *d)
+{
+	d->format = format;
+	d->rate = rate;
+	d->channels = channels;
+	d->threshold = threshold;
+	d->gain = gain;
+
+	d->initialized = FALSE;
+}
+
+void soundfoldingdistort_add(int fdisenabled, char* inbuffer, int inbuffersize, struct soundfoldingdistortion *d)
+{
+	pthread_mutex_lock(&fdmutex);
+	if (fdisenabled)
+	{
+		if (!d->initialized)
+		{
+			d->physicalwidth = snd_pcm_format_width(d->format); // bits per sample
+			d->insamples = inbuffersize / d->physicalwidth * 8;
+			d->initialized = TRUE;
+		}
+		signed short *inshort = (signed short *)inbuffer;
+		int i;
+		for(i=0;i<d->insamples;i++)
+			inshort[i]= (inshort[i]>d->threshold?2*d->threshold-inshort[i]:(inshort[i]<-d->threshold?-2*d->threshold-inshort[i]:inshort[i]))*d->gain;
+			//inshort[i] = (inshort[i]>d->threshold?d->threshold:(inshort[i]<-d->threshold?-d->threshold:inshort[i]))*d->gain;
+	}
+	pthread_mutex_unlock(&fdmutex);
+}
+
+void soundfoldingdistort_close(struct soundfoldingdistortion *d)
+{
+	d->initialized = TRUE;
+}
+
+void FoldingDistortion_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundfoldingdistortion *d)
+{
+	pthread_mutex_lock(&fdmutex);
+	d->threshold = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12));
+	d->gain = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13));
+	d->format = format;
+	d->rate = rate;
+	d->channels = channels;
+	soundfoldingdistort_init(d->threshold, d->gain, d->format, d->rate, d->channels, d);
+	pthread_mutex_unlock(&fdmutex);
+}
+
+// VFO
+int vfoenabled = 0;
+pthread_mutex_t vfomutex; // = PTHREAD_MUTEX_INITIALIZER;
+
+struct soundvfo
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+	float vfofreq; // modulation frequency
+	float vfodepth; // modulation depth in percent 0..1.0
+
+	int N; // extra frames
+	char *vfobuf;
+	int physicalwidth;
+	int vfobufframes;
+	int vfobufsamples;
+	int framebytes;
+	int inbuffersamples;
+	int inbufferframes;
+	int front, rear;
+	int *framepos;
+	int frameindex;
+	int framei;
+	int framesinT;
+
+	int readfront;
+};
+
+struct soundvfo sndvfo;
+
+void soundvfo_init(float vfofreq, float vfodepth, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundvfo *v)
+{
+	v->format = format;
+	v->rate = rate;
+	v->channels = channels;
+	v->vfofreq = vfofreq;
+	v->vfodepth = vfodepth;
+
+	v->vfobuf = NULL;
+	v->rear = v->front = 0;
+	v->framepos = NULL;
+	v->framei = 0;
+	v->frameindex = 0;
+
+	v->readfront = 0;
+}
+
+void soundvfo_add(int vfoisenabled, char* inbuffer, int inbuffersize, struct soundvfo *v)
+{
+	float thetapos, thetaneg, tpos, tneg;
+
+	pthread_mutex_lock(&vfomutex);
+	if (vfoisenabled)
+	{
+		if (!v->vfobuf)
+		{
+			v->physicalwidth = snd_pcm_format_width(v->format);
+			v->framebytes = v->physicalwidth / 8 * v->channels;
+			v->inbufferframes = inbuffersize / v->framebytes;
+			v->N = ceil(v->inbufferframes * v->vfodepth);
+			v->inbuffersamples = v->inbufferframes * v->channels;
+			v->vfobufframes = v->inbufferframes + v->N;
+			v->vfobuf = malloc(v->vfobufframes * v->framebytes);
+			v->vfobufsamples = v->vfobufframes * v->channels;
+			memset(v->vfobuf, 0, v->vfobufframes * v->framebytes);
+			v->framepos = malloc(2*v->N*sizeof(int));
+
+			int k;
+			for(k=1;k<=v->N;k++)
+			{
+				thetapos = acos(1.0-2.0*k/v->N);
+				tpos = thetapos / (2 * M_PI * v->vfofreq);
+				v->framepos[k-1] = round(tpos * v->rate);
+			}
+			for(k=1;k<v->N;k++)
+			{
+				thetaneg = 2 * M_PI - acos(1.0-2.0*k/v->N);
+				tneg = thetaneg / (2 * M_PI * v->vfofreq);
+				v->framepos[2*v->N-1-k] = round(tneg * v->rate);
+			}
+			tneg = 1.0 / v->vfofreq;
+			v->framesinT = v->framepos[2*v->N-1] = round(tneg * v->rate);
+
+			v->framepos[2*v->N-1] = v->framesinT - 1;
+		}
+
+		int i, frameposition;
+		frameposition = v->framepos[v->frameindex];
+		signed short *inshort, *vfshort;
+		inshort = (signed short *)inbuffer;
+		vfshort = (signed short *)v->vfobuf;
+		for(i=0;i<v->inbufferframes;i++)
+		{
+			if (v->framei >= frameposition)
+			{
+				if (v->frameindex < v->N) // +
+				{
+
+					vfshort[v->rear++] = inshort[i*v->channels]; // L
+					vfshort[v->rear++] = inshort[i*v->channels+1]; // R
+					v->rear %= v->vfobufsamples;
+
+					vfshort[v->rear++] = inshort[i*v->channels]; // L
+					vfshort[v->rear++] = inshort[i*v->channels+1]; // R
+					v->rear %= v->vfobufsamples;
+
+				}
+				else // -
+				{
+				}
+				v->frameindex++;
+				v->frameindex%=2*v->N;
+				frameposition = v->framepos[v->frameindex];
+			}
+			else
+			{
+				vfshort[v->rear++] = inshort[i*v->channels]; // L
+				vfshort[v->rear++] = inshort[i*v->channels+1]; // R
+				v->rear %= v->vfobufsamples;
+			}
+			v->framei++;
+			v->framei %= v->framesinT;
+		}
+	}
+	pthread_mutex_unlock(&vfomutex);
+}
+
+void soundvfo_close(struct soundvfo *v)
+{
+	if (!v->vfobuf)
+	{
+		free(v->vfobuf);
+		v->vfobuf = NULL;
+		free(v->framepos);
+		v->framepos = NULL;
+	}
+}
+
+void VFO_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundvfo *v)
+{
+	pthread_mutex_lock(&vfomutex);
+	v->vfofreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
+	v->vfodepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
+	v->format = format;
+	v->rate = rate;
+	v->channels = channels;
+	soundvfo_init(v->vfofreq, v->vfodepth, v->format, v->rate, v->channels, v);
+	pthread_mutex_unlock(&vfomutex);
+}
+
+// Modulator
+int modenabled = 0;
+pthread_mutex_t modmutex; // = PTHREAD_MUTEX_INITIALIZER;
+
+struct soundmod
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+	float modfreq; // modulation frequency
+	float moddepth; // modulation depth in percent 0..1.0
+
+	struct soundvfo v;
+};
+
+struct soundmod sndmod;
+
+void soundmod_init(float modfreq, float moddepth, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundmod *m)
+{
+	m->format = format;
+	m->rate = rate;
+	m->channels = channels;
+	m->modfreq = modfreq;
+	m->moddepth = moddepth;
+	soundvfo_init(modfreq, moddepth, format, rate, channels, &(m->v));
+}
+
+void soundmod_add(int modisenabled, char* inbuffer, int inbuffersize, struct soundmod *m)
+{
+	int i;
+	signed short *inshort, *vfshort;
+
+	pthread_mutex_lock(&modmutex);
+	if (modisenabled)
+	{
+		soundvfo_add(TRUE, inbuffer, inbuffersize, &(m->v));
+		inshort = (signed short *)inbuffer;
+		vfshort = (signed short *)m->v.vfobuf;
+		for(i=0;i<m->v.inbuffersamples;)
+		{
+			inshort[i++] = vfshort[m->v.readfront++];
+			inshort[i++] = vfshort[m->v.readfront++];
+			m->v.readfront %= m->v.vfobufsamples;
+		}
+	}
+	pthread_mutex_unlock(&modmutex);
+}
+
+void soundmod_close(struct soundmod *m)
+{
+	soundvfo_close(&(m->v));
+}
+
+void Modulator_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundmod *m)
+{
+	pthread_mutex_lock(&modmutex);
+	m->modfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
+	m->moddepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
+	m->format = format;
+	m->rate = rate;
+	m->channels = channels;
+	soundmod_init(m->modfreq, m->moddepth, m->format, m->rate, m->channels, m);
+	pthread_mutex_unlock(&modmutex);
+}
+
+// Chorus
+#define MAXCHORUS 3
+
+float chofreq[MAXCHORUS] = {0.307, 0.409, 0.509}; // modulation frequencies
+float chodepth[MAXCHORUS] = {0.4, 0.4, 0.4}; // modulation depths in percent 0 .. 1.0
+
+int choenabled = 0;
+pthread_mutex_t chomutex; // = PTHREAD_MUTEX_INITIALIZER;
+
+struct soundcho
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+
+	int maxcho;
+	struct soundvfo v[MAXCHORUS];
+};
+
+struct soundcho sndchorus;
+
+void soundcho_init(int maxcho, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundcho *c)
+{
+	int i;
+
+	c->format = format;
+	c->rate = rate;
+	c->channels = channels;
+	c->maxcho = maxcho;
+	for(i=0;i<maxcho;i++)
+	{
+		soundvfo_init(chofreq[i], chodepth[i], format, rate, channels, &(c->v[i]));
+	}
+}
+
+void soundcho_add(int choisenabled, char* inbuffer, int inbuffersize, struct soundcho *c)
+{
+	int i,j;
+	signed short *inshort, *vfshort;
+	float prescale = 1.0 / sqrt(c->maxcho+1); // 1/sqrt(N+1);
+
+	pthread_mutex_lock(&chomutex);
+	if (choisenabled)
+	{
+		for(j=0;j<c->maxcho;j++)
+		{
+			soundvfo_add(TRUE, inbuffer, inbuffersize, &(c->v[j]));
+		}
+		inshort = (signed short *)inbuffer;
+		for(i=0;i<c->v[0].inbuffersamples;)
+			inshort[i++] *= prescale;
+		for(j=0;j<c->maxcho;j++)
+		{
+			vfshort = (signed short *)c->v[j].vfobuf;
+			for(i=0;i<c->v[j].inbuffersamples;)
+			{
+				inshort[i++] += vfshort[c->v[j].readfront++]*prescale;
+				inshort[i++] += vfshort[c->v[j].readfront++]*prescale;
+				c->v[j].readfront %= c->v[j].vfobufsamples;
+			}
+		}
+	}
+	pthread_mutex_unlock(&chomutex);
+}
+
+void soundcho_close(struct soundcho *c)
+{
+	int j;
+	for(j=0;j<c->maxcho;j++)
+	{
+		soundvfo_close(&(c->v[j]));
+	}
+}
+
+void Chorus_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundcho *c)
+{
+	pthread_mutex_lock(&chomutex);
+	c->format = format;
+	c->rate = rate;
+	c->channels = channels;
+	c->maxcho = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16));
+	soundcho_init(c->maxcho, c->format, c->rate, c->channels, c);
+	pthread_mutex_unlock(&chomutex);
+}
+
+// Haas
+
+
+// ADT
 
 
 void write_status(snd_pcm_state_t stat)
@@ -1896,6 +2394,9 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 			sounddelay_add(dlyenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &snddly);
 			soundreverb_add(rvrbenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndreverb);
 			soundtremolo_add(tremoloenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndtremolo);
+			soundfoldingdistort_add(fdenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndflddistort);
+			soundmod_add(modenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndmod);
+			soundcho_add(choenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndchorus);
 			framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
 			if (framecount)
 				err = snd_pcm_writei(handle, p->dst_data[0], framecount);
@@ -2644,7 +3145,9 @@ int open_file(char * filename)
 	Delay_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &snddly);
 	Reverb_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndreverb);
 	Tremolo_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndtremolo);
-
+	FoldingDistortion_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndflddistort);
+	Modulator_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndmod);
+	Chorus_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndchorus);
 	return 0;
 }
 
@@ -2907,6 +3410,9 @@ get_first_time_microseconds_2();
 	pthread_mutex_destroy(&framemutex);
 
 	sounddelay_close(&snddly);
+	soundreverb_close(&sndreverb);
+	soundfoldingdistort_close(&sndflddistort);
+	soundmod_close(&sndmod);
 	close_sound();
 
 	free(swr);
@@ -3260,6 +3766,7 @@ int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColN
 	}
 	gtk_adjustment_set_value(vadj9, -f);
 
+/*
 	point2comma(argv[11]);
 	f=strtod(argv[11], &errCheck);
 	if (errCheck == argv[11])
@@ -3267,7 +3774,10 @@ int select_eqpreset_callback(void *NotUsed, int argc, char **argv, char **azColN
 		f=0.0;
 		printf("Conversion error %s %s\n", azColName[11], argv[11]);
 	}
-	gtk_adjustment_set_value(vadjA, 1.0-f);
+	gtk_adjustment_set_value(vadjA, 16.0-f);
+*/
+	effectivegain();
+
 	return 0;
 }
 
@@ -3528,7 +4038,7 @@ int select_callback(void *NotUsed, int argc, char **argv, char **azColName)
 	return 0;
 }
 
-static GtkTreeModel* create_and_fill_model(int mode)
+static GtkTreeModel* create_and_fill_model(int mode, int argc, char** argv)
 {
 	sqlite3 *db;
 	char *err_msg = NULL;
@@ -3562,6 +4072,12 @@ static GtkTreeModel* create_and_fill_model(int mode)
 			}
 			sqlite3_close(db);
 			break;
+		case 2:
+			for(rc=1;rc<argc;rc++)
+			{
+				gtk_list_store_append(store, &iter);
+				gtk_list_store_set(store, &iter, COL_ID, rc, COL_FILEPATH, argv[rc], -1);
+			}
 		default:
 			break;
 	}
@@ -3569,7 +4085,7 @@ static GtkTreeModel* create_and_fill_model(int mode)
 	return GTK_TREE_MODEL(store);
 }
 
-static GtkWidget* create_view_and_model(void)
+static GtkWidget* create_view_and_model(int argc, char** argv)
 {
 	GtkCellRenderer *renderer;
 	GtkTreeModel *model;
@@ -3585,7 +4101,10 @@ static GtkWidget* create_view_and_model(void)
 	renderer = gtk_cell_renderer_text_new();
 	gtk_tree_view_insert_column_with_attributes (GTK_TREE_VIEW(view), -1, "File Path", renderer, "text", COL_FILEPATH, NULL);
 
-	model = create_and_fill_model(0); // do not insert rows
+	if (argc>1)
+		model = create_and_fill_model(2, argc, argv); // insert rows from command line
+	else
+		model = create_and_fill_model(0, 0, NULL); // do not insert rows
 
 	gtk_tree_view_set_model(GTK_TREE_VIEW(view), model);
 
@@ -3643,7 +4162,7 @@ static void button3_clicked(GtkWidget *button, gpointer data)
 
 	gtk_tree_view_set_model(GTK_TREE_VIEW(listview), NULL); /* Detach model from view */
 	g_object_unref(model);
-	model = create_and_fill_model(0); // insert rows
+	model = create_and_fill_model(0, 0, NULL); // insert rows
 	gtk_tree_view_set_model(GTK_TREE_VIEW(listview), model); /* Re-attach model to view */
 }
 
@@ -3656,7 +4175,7 @@ static void button4_clicked(GtkWidget *button, gpointer data)
 
 	gtk_tree_view_set_model(GTK_TREE_VIEW(listview), NULL); /* Detach model from view */
 	g_object_unref(model);
-	model = create_and_fill_model(1); // insert rows
+	model = create_and_fill_model(1, 0, NULL); // insert rows
 	gtk_tree_view_set_model(GTK_TREE_VIEW(listview), model); /* Re-attach model to view */
 }
 
@@ -4233,7 +4752,7 @@ static void dly_toggled(GtkWidget *togglebutton, gpointer data)
 	dlyenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
 	if (dlyenabled)
 	{
-		sounddelay_init(snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
+		sounddelay_init(1, snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
 	else
 	{
@@ -4251,7 +4770,7 @@ static void delay_changed(GtkWidget *widget, gpointer data)
 	if (dlyenabled)
 	{
 		sounddelay_close(&snddly);
-		sounddelay_init(snddly.delaytype, newvalue, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
+		sounddelay_init(1, snddly.delaytype, newvalue, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
 	pthread_mutex_unlock(&delaymutex);
 }
@@ -4274,7 +4793,7 @@ static void delaytype_changed(GtkWidget *combo, gpointer data)
 		//printf("Selected id %s\n", strval);
 		snddly.delaytype = atoi((const char *)strval);
 		g_free(strval);
-		sounddelay_init(snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
+		sounddelay_init(1, snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
 	pthread_mutex_unlock(&delaymutex);
 }
@@ -4286,7 +4805,7 @@ static void feedback_changed(GtkWidget *widget, gpointer data)
 	if (dlyenabled)
 	{
 		sounddelay_close(&snddly);
-		sounddelay_init(snddly.delaytype, snddly.millisec, newvalue, snddly.format, snddly.rate, snddly.channels, &snddly);
+		sounddelay_init(1, snddly.delaytype, snddly.millisec, newvalue, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
 	pthread_mutex_unlock(&delaymutex);
 }
@@ -4300,7 +4819,7 @@ static void rvrb_toggled(GtkWidget *togglebutton, gpointer data)
 	rvrbenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
 	if (rvrbenabled)
 	{
-		soundreverb_init(sndreverb.feedback, sndreverb.presence, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	else
 	{
@@ -4318,7 +4837,7 @@ static void rvrbfeedback_changed(GtkWidget *widget, gpointer data)
 	if (rvrbenabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(newvalue, sndreverb.presence, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(newvalue, sndreverb.presence, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&reverbmutex);
 }
@@ -4330,7 +4849,19 @@ static void rvrbpresence_changed(GtkWidget *widget, gpointer data)
 	if (rvrbenabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(sndreverb.feedback, newvalue, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.feedback, newvalue, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+	}
+	pthread_mutex_unlock(&reverbmutex);
+}
+
+static void rvrbLPF_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&reverbmutex);
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (rvrbenabled)
+	{
+		soundreverb_close(&sndreverb);
+		soundreverb_init(sndreverb.feedback, sndreverb.presence, newvalue, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&reverbmutex);
 }
@@ -4345,7 +4876,7 @@ static void tremolo_toggled(GtkWidget *togglebutton, gpointer data)
 	tremoloenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
 	if (tremoloenabled)
 	{
-		soundtremolo_init(sndtremolo.depth, sndtremolo.tremolorate, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndtremolo);
+		soundtremolo_init(sndtremolo.depth, sndtremolo.tremolorate, sndtremolo.format, sndtremolo.rate, sndtremolo.channels, &sndtremolo);
 	}
 	else
 	{
@@ -4377,6 +4908,117 @@ static void tremolorate_changed(GtkWidget *widget, gpointer data)
 	pthread_mutex_unlock(&tremolomutex);
 }
 
+static void fd_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	pthread_mutex_lock(&fdmutex);
+	sndflddistort.threshold = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12));
+	sndflddistort.gain = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13));
+
+	fdenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (fdenabled)
+	{
+		soundfoldingdistort_init(sndflddistort.threshold, sndflddistort.gain, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
+	}
+	else
+	{
+		soundfoldingdistort_close(&sndflddistort);
+	}
+	pthread_mutex_unlock(&fdmutex);
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(tremoloenable)));
+}
+
+static void fdthreshold_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&fdmutex);
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (fdenabled)
+	{
+		soundfoldingdistort_init(newvalue, sndflddistort.gain, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
+	}
+	pthread_mutex_unlock(&fdmutex);
+}
+
+static void fdgain_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&fdmutex);
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (fdenabled)
+	{
+		soundfoldingdistort_init(sndflddistort.threshold, newvalue, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
+	}
+	pthread_mutex_unlock(&fdmutex);
+}
+
+static void mod_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	pthread_mutex_lock(&modmutex);
+	sndmod.modfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
+	sndmod.moddepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
+
+	modenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (modenabled)
+	{
+		soundmod_init(sndmod.modfreq, sndmod.moddepth, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
+	}
+	else
+	{
+		soundmod_close(&sndmod);
+	}
+	pthread_mutex_unlock(&modmutex);
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(modenable)));
+}
+
+static void modfreq_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&modmutex);
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (modenabled)
+	{
+		soundmod_init(newvalue, sndmod.moddepth, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
+	}
+	pthread_mutex_unlock(&modmutex);
+}
+
+static void moddepth_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&modmutex);
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (modenabled)
+	{
+		soundmod_init(sndmod.modfreq, newvalue, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
+	}
+	pthread_mutex_unlock(&modmutex);
+}
+
+static void cho_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	pthread_mutex_lock(&chomutex);
+	sndchorus.maxcho = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16));
+
+	choenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (choenabled)
+	{
+		soundcho_init(sndchorus.maxcho, sndchorus.format, sndchorus.rate, sndchorus.channels, &sndchorus);
+	}
+	else
+	{
+		soundcho_close(&sndchorus);
+	}
+	pthread_mutex_unlock(&chomutex);
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(choenable)));
+}
+
+static void cho_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&chomutex);
+	int newvalue = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (choenabled)
+	{
+		soundcho_init(newvalue, sndchorus.format, sndchorus.rate, sndchorus.channels, &sndchorus);
+	}
+	pthread_mutex_unlock(&chomutex);
+}
+
 int main(int argc, char** argv)
 {
 	playerWidth = 800;
@@ -4401,6 +5043,36 @@ int main(int argc, char** argv)
 	if ((ret=pthread_mutex_init(&reverbmutex, NULL))!=0 )
 	{
 		printf("Reverb mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&tremolomutex, NULL))!=0 )
+	{
+		printf("Tremolo mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&fdmutex, NULL))!=0 )
+	{
+		printf("Distortion mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&vfomutex, NULL))!=0 )
+	{
+		printf("VFO mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&modmutex, NULL))!=0 )
+	{
+		printf("Modulator mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&chomutex, NULL))!=0 )
+	{
+		printf("Chorus mutex init failed, %d\n", ret);
 		return -1;
 	}
 
@@ -4517,7 +5189,7 @@ int main(int argc, char** argv)
     gtk_widget_set_size_request(scrolled_window, dawidth, daheight);
     gtk_container_add(GTK_CONTAINER(box2), scrolled_window);
 
-    listview = create_view_and_model();
+    listview = create_view_and_model(argc, argv);
     g_signal_connect(listview, "row-activated", (GCallback)listview_onRowActivated, NULL);
     gtk_container_add(GTK_CONTAINER(scrolled_window), listview);
 
@@ -4673,7 +5345,7 @@ int main(int argc, char** argv)
 // vertical scale preamp
     eqboxA = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_container_add(GTK_CONTAINER(eqbox), eqboxA);
-    vadjA = gtk_adjustment_new(0, 0, 1, 0.01, 0.1, 0);
+    vadjA = gtk_adjustment_new(0, 0, 16.0, 0.01, 0.1, 0);
     vscaleeqA = gtk_scale_new(GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT(vadjA));
     gtk_scale_set_digits(GTK_SCALE(vscaleeqA), 2);
     g_signal_connect(vscaleeqA, "value-changed", G_CALLBACK(vscaleA), NULL);
@@ -4711,7 +5383,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framedelay1), dlybox1);
 
 // checkbox
-	dlyenable = gtk_check_button_new_with_label("Delay Enable");
+	dlyenable = gtk_check_button_new_with_label("Enable");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dlyenable), FALSE);
 	g_signal_connect(GTK_TOGGLE_BUTTON(dlyenable), "toggled", G_CALLBACK(dly_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(dlybox1), dlyenable);
@@ -4754,7 +5426,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framervrb1), rvrbbox1);
 
 // checkbox
-	rvrbenable = gtk_check_button_new_with_label("Reverb Enable");
+	rvrbenable = gtk_check_button_new_with_label("Enable");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rvrbenable), FALSE);
 	g_signal_connect(GTK_TOGGLE_BUTTON(rvrbenable), "toggled", G_CALLBACK(rvrb_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrbenable);
@@ -4763,9 +5435,9 @@ int main(int argc, char** argv)
 	rvrblabel2 = gtk_label_new("Presence");
 	gtk_widget_set_size_request(rvrblabel2, 100, 30);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrblabel2);
-	spinbutton8 = gtk_spin_button_new_with_range(1.00, 2.00, 0.1);
+	spinbutton8 = gtk_spin_button_new_with_range(0.1, 2.00, 0.1);
 	gtk_widget_set_size_request(spinbutton8, 120, 30);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton8), 1.6);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton8), 0.6);
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton8), "value-changed", G_CALLBACK(rvrbpresence_changed), NULL);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton8);
 
@@ -4779,6 +5451,16 @@ int main(int argc, char** argv)
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton7), "value-changed", G_CALLBACK(rvrbfeedback_changed), NULL);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton7);
 
+// LPF
+	rvrblabel3 = gtk_label_new("LPF (Hz)");
+	gtk_widget_set_size_request(rvrblabel3, 100, 30);
+	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrblabel3);
+	spinbutton11 = gtk_spin_button_new_with_range(32.0, 20000.0, 100.0);
+	gtk_widget_set_size_request(spinbutton11, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton11), 5000.0);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton11), "value-changed", G_CALLBACK(rvrbLPF_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton11);
+
 // tremolo frame
     frametremolo1 = gtk_frame_new("Tremolo");
     gtk_container_add(GTK_CONTAINER(dlyvbox), frametremolo1);
@@ -4788,7 +5470,7 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(frametremolo1), tremolobox1);
 
 // checkbox
-	tremoloenable = gtk_check_button_new_with_label("Tremolo Enable");
+	tremoloenable = gtk_check_button_new_with_label("Enable");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tremoloenable), FALSE);
 	g_signal_connect(GTK_TOGGLE_BUTTON(tremoloenable), "toggled", G_CALLBACK(tremolo_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(tremolobox1), tremoloenable);
@@ -4804,7 +5486,7 @@ int main(int argc, char** argv)
 	gtk_container_add(GTK_CONTAINER(tremolobox1), spinbutton9);
 
 // tremolo rate
-	tremololabel2 = gtk_label_new("Rate");
+	tremololabel2 = gtk_label_new("Rate (Hz)");
 	gtk_widget_set_size_request(tremololabel2, 100, 30);
 	gtk_container_add(GTK_CONTAINER(tremolobox1), tremololabel2);
 	spinbutton10 = gtk_spin_button_new_with_range(0.1, 10.0, 0.1);
@@ -4812,6 +5494,104 @@ int main(int argc, char** argv)
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton10), 3.0);
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton10), "value-changed", G_CALLBACK(tremolorate_changed), NULL);
 	gtk_container_add(GTK_CONTAINER(tremolobox1), spinbutton10);
+
+// folding distortion frame
+    framefd1 = gtk_frame_new("Folding Distortion");
+    gtk_container_add(GTK_CONTAINER(dlyvbox), framefd1);
+
+// horizontal box
+    fdbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(framefd1), fdbox1);
+
+// checkbox
+	fdenable = gtk_check_button_new_with_label("Enable");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fdenable), FALSE);
+	g_signal_connect(GTK_TOGGLE_BUTTON(fdenable), "toggled", G_CALLBACK(fd_toggled), NULL);
+	gtk_container_add(GTK_CONTAINER(fdbox1), fdenable);
+
+// threshold
+	fdlabel1 = gtk_label_new("Threshold");
+	gtk_widget_set_size_request(fdlabel1, 100, 30);
+	gtk_container_add(GTK_CONTAINER(fdbox1), fdlabel1);
+	spinbutton12 = gtk_spin_button_new_with_range(100.0, 32767.0, 1000.0);
+	gtk_widget_set_size_request(spinbutton12, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton12), 2000.0);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton12), "value-changed", G_CALLBACK(fdthreshold_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(fdbox1), spinbutton12);
+
+// gain
+	fdlabel2 = gtk_label_new("Gain");
+	gtk_widget_set_size_request(fdlabel2, 100, 30);
+	gtk_container_add(GTK_CONTAINER(fdbox1), fdlabel2);
+	spinbutton13 = gtk_spin_button_new_with_range(1.0, 20.0, 0.1);
+	gtk_widget_set_size_request(spinbutton13, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton13), 2.0);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton13), "value-changed", G_CALLBACK(fdgain_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(fdbox1), spinbutton13);
+
+// modulation frame
+    framemod1 = gtk_frame_new("Modulation");
+    gtk_container_add(GTK_CONTAINER(dlyvbox), framemod1);
+
+// horizontal box
+    modbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(framemod1), modbox1);
+
+// checkbox
+	modenable = gtk_check_button_new_with_label("Enable");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(modenable), FALSE);
+	g_signal_connect(GTK_TOGGLE_BUTTON(modenable), "toggled", G_CALLBACK(mod_toggled), NULL);
+	gtk_container_add(GTK_CONTAINER(modbox1), modenable);
+
+// rate
+	modlabel1 = gtk_label_new("Rate (Hz)");
+	gtk_widget_set_size_request(modlabel1, 100, 30);
+	gtk_container_add(GTK_CONTAINER(modbox1), modlabel1);
+	spinbutton14 = gtk_spin_button_new_with_range(0.1, 20.0, 0.1);
+	gtk_widget_set_size_request(spinbutton14, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton14), 2.0);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton14), "value-changed", G_CALLBACK(modfreq_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(modbox1), spinbutton14);
+
+// depth
+	modlabel2 = gtk_label_new("Depth");
+	gtk_widget_set_size_request(modlabel2, 100, 30);
+	gtk_container_add(GTK_CONTAINER(modbox1), modlabel2);
+	spinbutton15 = gtk_spin_button_new_with_range(0.01, 0.2, 0.01);
+	gtk_widget_set_size_request(spinbutton15, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton15), 0.1);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton15), "value-changed", G_CALLBACK(moddepth_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(modbox1), spinbutton15);
+
+// chorus frame
+    framecho1 = gtk_frame_new("Chorus");
+    gtk_container_add(GTK_CONTAINER(dlyvbox), framecho1);
+
+// horizontal box
+    chobox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(framecho1), chobox1);
+
+// checkbox
+	choenable = gtk_check_button_new_with_label("Enable");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choenable), FALSE);
+	g_signal_connect(GTK_TOGGLE_BUTTON(choenable), "toggled", G_CALLBACK(cho_toggled), NULL);
+	gtk_container_add(GTK_CONTAINER(chobox1), choenable);
+
+// max chorus
+	cholabel1 = gtk_label_new("Max");
+	gtk_widget_set_size_request(cholabel1, 100, 30);
+	gtk_container_add(GTK_CONTAINER(chobox1), cholabel1);
+	spinbutton16 = gtk_spin_button_new_with_range(1, MAXCHORUS, 1);
+	gtk_widget_set_size_request(spinbutton16, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton16), 1);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton16), "value-changed", G_CALLBACK(cho_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(chobox1), spinbutton16);
+
+// Haas
+
+// ADT
+
+
 // dlyvbox contents end
 
 // stack switcher
@@ -5010,10 +5790,12 @@ int main(int argc, char** argv)
 	// Commandline
 	if (argc>1)
 	{
-		now_playing = (char *)g_malloc(strlen(argv[1])+1);
-		strcpy(now_playing, argv[1]);
+		GtkTreePath *tp = gtk_tree_path_new_from_string("0");
+		GtkTreeSelection *ts = gtk_tree_view_get_selection(GTK_TREE_VIEW(listview));
+		gtk_tree_selection_select_path(ts, tp);
+		listview_onRowActivated(GTK_TREE_VIEW(listview), tp, NULL, NULL);
+		gtk_tree_path_free(tp);
 	}
-	button1_clicked(button1, NULL);
 
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or mouse event). */
