@@ -251,6 +251,15 @@ GtkWidget *choenable;
 GtkWidget *cholabel1;
 GtkWidget *spinbutton16;
 
+GtkWidget *framehaas1;
+GtkWidget *haasbox1;
+GtkWidget *mnenable1;
+GtkWidget *haasenable;
+GtkWidget *haaslabel1;
+GtkWidget *spinbutton17;
+
+GtkWidget *mnenable2;
+
 char leveltext1[10];
 char leveltext2[10];
 char leveltext3[10];
@@ -1587,13 +1596,9 @@ void BiQuad_process(uint8_t *buf, int bufsize, int bytesinsample)
 	pthread_mutex_unlock(&eqmutex);
 }
 
-
 // Delay Processor
-int dlyenabled = 0;
-pthread_mutex_t delaymutex; // = PTHREAD_MUTEX_INITIALIZER;
 
-/* Delay types */
-enum dly_type
+enum dly_type /* Delay types */
 {
 	DLY_ECHO,
 	DLY_DELAY,
@@ -1608,6 +1613,8 @@ struct sounddelay
 	float feedback; // feedback level 0.0 .. 1.0
 	float millisec; // delay in milliseconds
 	int N; // parallel delays
+	int enabled;
+	pthread_mutex_t delaymutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 	int physicalwidth; // bits per sample
 	char *fbuffer;
@@ -1638,14 +1645,14 @@ void sounddelay_init(int N, enum dly_type delaytype, float millisec, float feedb
 	//printf("Delay initialized, type %d, %5.2f ms, %5.2f feedback, %d rate, %d channels\n", s->delaytype, s->millisec, s->feedback, s->rate, s->channels);
 }
 
-void sounddelay_add(int delayisenabled, char* inbuffer, int inbuffersize, struct sounddelay *s)
+void sounddelay_add(char* inbuffer, int inbuffersize, struct sounddelay *s)
 {
 	int i;
 	float prescale;
 	signed short *inshort;
 
-	pthread_mutex_lock(&delaymutex);
-	if (delayisenabled)
+	pthread_mutex_lock(&(s->delaymutex));
+	if (s->enabled)
 	{
 		if (!s->fbuffer)
 		{
@@ -1704,7 +1711,7 @@ void sounddelay_add(int delayisenabled, char* inbuffer, int inbuffersize, struct
 				break;
 		}
 	}
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(s->delaymutex));
 }
 
 void sounddelay_close(struct sounddelay *s)
@@ -1720,23 +1727,24 @@ void Delay_initAll(snd_pcm_format_t format, float rate, unsigned int channels, s
 {
 	gchar *strval;
 
-	pthread_mutex_lock(&delaymutex);
+	pthread_mutex_lock(&(s->delaymutex));
 	g_object_get((gpointer)combodelaytype, "active-id", &strval, NULL);
 	//printf("Selected id %s\n", strval);
 	s->delaytype = atoi((const char *)strval);
+	sounddelay_init(1, atoi((const char *)strval), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton5)), 
+					(float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton6)), format, rate, channels, s);
 	g_free(strval);
-	s->millisec = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton5));
-	s->feedback = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton6));
-	s->format = format;
-	s->rate = rate;
-	s->channels = channels;
-	sounddelay_init(1, s->delaytype, s->millisec, s->feedback, s->format, s->rate, s->channels, s);
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(s->delaymutex));
+}
+
+void Delay_closeAll(struct sounddelay *s)
+{
+	pthread_mutex_lock(&(s->delaymutex));
+	sounddelay_close(s);
+	pthread_mutex_unlock(&(s->delaymutex));
 }
 
 // Reverb
-int rvrbenabled = 0;
-pthread_mutex_t reverbmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 #define REVERBDLINES 24 //24
 //float reverbprimes[REVERBDLINES] = {290.0, 387.0, 433.0, 470.0, 523.0, 559.0, 643.0};
@@ -1763,6 +1771,8 @@ struct soundreverb
 	unsigned int channels; // channels
 	float feedback; // feedback level 0.0 .. 1.0
 	float presence; // reverbation presence
+	int enabled;
+	pthread_mutex_t reverbmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 	float LPFfreq;
 	struct biquad bl, br;
@@ -1793,30 +1803,31 @@ void soundreverb_init(float feedback, float presence, float LPFf, snd_pcm_format
 	int i;
 	for(i=0; i<REVERBDLINES; i++)
 	{
+		r->snddlyrev[i].enabled = TRUE;
 		sounddelay_init(REVERBDLINES, DLY_REVERB, reverbprimes[i], feedback, format, rate, channels, &(r->snddlyrev[i]));
-		r->format = format;
-		r->rate = rate;
-		r->channels = channels;
-		r->feedback = feedback;
-		r->presence = presence;
-		r->LPFfreq = LPFf;
 	}
+	r->format = format;
+	r->rate = rate;
+	r->channels = channels;
+	r->feedback = feedback;
+	r->presence = presence;
+	r->LPFfreq = LPFf;
 	r->bbuf = NULL;
 	BiQuad_init(LPF, 12.0, r->LPFfreq, r->rate, eqoctave, &(r->bl));
 	BiQuad_init(LPF, 12.0, r->LPFfreq, r->rate, eqoctave, &(r->br));
 }
 
-void soundreverb_add(int reverbisenabled, char* inbuffer, int inbuffersize, struct soundreverb *r)
+void soundreverb_add(char* inbuffer, int inbuffersize, struct soundreverb *r)
 {
 	int i, j, *readfront, *fbsamples;
 	signed short *dstbuf, *srcbuf;
 
-	pthread_mutex_lock(&reverbmutex);
-	if (reverbisenabled)
+	pthread_mutex_lock(&(r->reverbmutex));
+	if (r->enabled)
 	{
 		for(i=0; i<REVERBDLINES; i++)
 		{
-			sounddelay_add(TRUE, inbuffer, inbuffersize, &(r->snddlyrev[i]));
+			sounddelay_add(inbuffer, inbuffersize, &(r->snddlyrev[i]));
 		}
 
 		if (!r->bbuf)
@@ -1846,7 +1857,7 @@ void soundreverb_add(int reverbisenabled, char* inbuffer, int inbuffersize, stru
 			dstbuf[j] += srcbuf[j];
 		}
 	}
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_unlock(&(r->reverbmutex));
 }
 
 void soundreverb_close(struct soundreverb *r)
@@ -1870,20 +1881,20 @@ void soundreverb_close(struct soundreverb *r)
 
 void Reverb_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundreverb *r)
 {
-	pthread_mutex_lock(&reverbmutex);
-	r->feedback = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7));
-	r->presence = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton8));
-	r->LPFfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton11));
-	r->format = format;
-	r->rate = rate;
-	r->channels = channels;
-	soundreverb_init(r->feedback, r->presence, r->LPFfreq, r->format, r->rate, r->channels, r);
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_lock(&(r->reverbmutex));
+	soundreverb_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton8)), 
+					(float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton11)), format, rate, channels, r);
+	pthread_mutex_unlock(&(r->reverbmutex));
+}
+
+void Reverb_closeAll(struct soundreverb *r)
+{
+	pthread_mutex_lock(&(r->reverbmutex));
+	soundreverb_close(r);
+	pthread_mutex_unlock(&(r->reverbmutex));
 }
 
 // Tremolo
-int tremoloenabled = 0;
-pthread_mutex_t tremolomutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 struct soundtremolo
 {
@@ -1893,6 +1904,9 @@ struct soundtremolo
 	float depth; // depth 0.0 .. 1.0
 	float tremolorate; // tremolo rate  0.1 .. 10
 	unsigned int framecount; // time=framecount/rate % rate; instantaneous volume=1-depth/2*(1-sin(2*pi*tremolorate*time))
+
+	int enabled;
+	pthread_mutex_t tremolomutex; // = PTHREAD_MUTEX_INITIALIZER;
 };
 
 struct soundtremolo sndtremolo;
@@ -1907,10 +1921,10 @@ void soundtremolo_init(float depth, float tremolorate, snd_pcm_format_t format, 
 	t->framecount = 0;
 }
 
-void soundtremolo_add(int tremoloisenabled, char* inbuffer, int inbuffersize, struct soundtremolo *t)
+void soundtremolo_add(char* inbuffer, int inbuffersize, struct soundtremolo *t)
 {
-	pthread_mutex_lock(&tremolomutex);
-	if (tremoloisenabled)
+	pthread_mutex_lock(&(t->tremolomutex));
+	if (t->enabled)
 	{
 		int physicalwidth = snd_pcm_format_width(t->format); // bits per sample
 		int insamples = inbuffersize / physicalwidth * 8;
@@ -1927,24 +1941,29 @@ void soundtremolo_add(int tremoloisenabled, char* inbuffer, int inbuffersize, st
 		}
 		t->framecount %= framesinT;
 	}
-	pthread_mutex_unlock(&tremolomutex);
+	pthread_mutex_unlock(&(t->tremolomutex));
+}
+
+void soundtremolo_close(struct soundtremolo *t)
+{
 }
 
 void Tremolo_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundtremolo *t)
 {
-	pthread_mutex_lock(&tremolomutex);
-	t->depth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton9));
-	t->tremolorate = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton10));
-	t->format = format;
-	t->rate = rate;
-	t->channels = channels;
-	soundtremolo_init(t->depth, t->tremolorate, t->format, t->rate, t->channels, t);
-	pthread_mutex_unlock(&tremolomutex);
+	pthread_mutex_lock(&(t->tremolomutex));
+	soundtremolo_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton9)), 
+					(float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton10)), format, rate, channels, t);
+	pthread_mutex_unlock(&(t->tremolomutex));
+}
+
+void Tremolo_closeAll(struct soundtremolo *t)
+{
+	pthread_mutex_lock(&(t->tremolomutex));
+	soundtremolo_close(t);
+	pthread_mutex_unlock(&(t->tremolomutex));
 }
 
 // Folding Distortion
-int fdenabled = 0;
-pthread_mutex_t fdmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 struct soundfoldingdistortion
 {
@@ -1953,6 +1972,8 @@ struct soundfoldingdistortion
 	unsigned int channels; // channels
 	float threshold;
 	float gain;
+	int enabled;
+	pthread_mutex_t fdmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 	int initialized;
 	int physicalwidth;
@@ -1972,10 +1993,10 @@ void soundfoldingdistort_init(float threshold, float gain, snd_pcm_format_t form
 	d->initialized = FALSE;
 }
 
-void soundfoldingdistort_add(int fdisenabled, char* inbuffer, int inbuffersize, struct soundfoldingdistortion *d)
+void soundfoldingdistort_add(char* inbuffer, int inbuffersize, struct soundfoldingdistortion *d)
 {
-	pthread_mutex_lock(&fdmutex);
-	if (fdisenabled)
+	pthread_mutex_lock(&(d->fdmutex));
+	if (d->enabled)
 	{
 		if (!d->initialized)
 		{
@@ -1989,7 +2010,7 @@ void soundfoldingdistort_add(int fdisenabled, char* inbuffer, int inbuffersize, 
 			inshort[i]= (inshort[i]>d->threshold?2*d->threshold-inshort[i]:(inshort[i]<-d->threshold?-2*d->threshold-inshort[i]:inshort[i]))*d->gain;
 			//inshort[i] = (inshort[i]>d->threshold?d->threshold:(inshort[i]<-d->threshold?-d->threshold:inshort[i]))*d->gain;
 	}
-	pthread_mutex_unlock(&fdmutex);
+	pthread_mutex_unlock(&(d->fdmutex));
 }
 
 void soundfoldingdistort_close(struct soundfoldingdistortion *d)
@@ -1999,19 +2020,20 @@ void soundfoldingdistort_close(struct soundfoldingdistortion *d)
 
 void FoldingDistortion_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundfoldingdistortion *d)
 {
-	pthread_mutex_lock(&fdmutex);
-	d->threshold = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12));
-	d->gain = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13));
-	d->format = format;
-	d->rate = rate;
-	d->channels = channels;
-	soundfoldingdistort_init(d->threshold, d->gain, d->format, d->rate, d->channels, d);
-	pthread_mutex_unlock(&fdmutex);
+	pthread_mutex_lock(&(d->fdmutex));
+	soundfoldingdistort_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13)),
+							format, rate, channels, d);
+	pthread_mutex_unlock(&(d->fdmutex));
+}
+
+void FoldingDistortion_closeAll(struct soundfoldingdistortion *d)
+{
+	pthread_mutex_lock(&(d->fdmutex));
+	soundfoldingdistort_close(d);
+	pthread_mutex_unlock(&(d->fdmutex));
 }
 
 // VFO
-int vfoenabled = 0;
-pthread_mutex_t vfomutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 struct soundvfo
 {
@@ -2020,6 +2042,7 @@ struct soundvfo
 	unsigned int channels; // channels
 	float vfofreq; // modulation frequency
 	float vfodepth; // modulation depth in percent 0..1.0
+	int enabled;
 
 	int N; // extra frames
 	char *vfobuf;
@@ -2057,12 +2080,11 @@ void soundvfo_init(float vfofreq, float vfodepth, snd_pcm_format_t format, unsig
 	v->readfront = 0;
 }
 
-void soundvfo_add(int vfoisenabled, char* inbuffer, int inbuffersize, struct soundvfo *v)
+void soundvfo_add(char* inbuffer, int inbuffersize, struct soundvfo *v)
 {
 	float thetapos, thetaneg, tpos, tneg;
 
-	pthread_mutex_lock(&vfomutex);
-	if (vfoisenabled)
+	if (v->enabled)
 	{
 		if (!v->vfobuf)
 		{
@@ -2134,7 +2156,6 @@ void soundvfo_add(int vfoisenabled, char* inbuffer, int inbuffersize, struct sou
 			v->framei %= v->framesinT;
 		}
 	}
-	pthread_mutex_unlock(&vfomutex);
 }
 
 void soundvfo_close(struct soundvfo *v)
@@ -2148,21 +2169,7 @@ void soundvfo_close(struct soundvfo *v)
 	}
 }
 
-void VFO_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundvfo *v)
-{
-	pthread_mutex_lock(&vfomutex);
-	v->vfofreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
-	v->vfodepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
-	v->format = format;
-	v->rate = rate;
-	v->channels = channels;
-	soundvfo_init(v->vfofreq, v->vfodepth, v->format, v->rate, v->channels, v);
-	pthread_mutex_unlock(&vfomutex);
-}
-
 // Modulator
-int modenabled = 0;
-pthread_mutex_t modmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 struct soundmod
 {
@@ -2171,6 +2178,8 @@ struct soundmod
 	unsigned int channels; // channels
 	float modfreq; // modulation frequency
 	float moddepth; // modulation depth in percent 0..1.0
+	int enabled;
+	pthread_mutex_t modmutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 	struct soundvfo v;
 };
@@ -2184,18 +2193,19 @@ void soundmod_init(float modfreq, float moddepth, snd_pcm_format_t format, unsig
 	m->channels = channels;
 	m->modfreq = modfreq;
 	m->moddepth = moddepth;
+	m->v.enabled = TRUE;
 	soundvfo_init(modfreq, moddepth, format, rate, channels, &(m->v));
 }
 
-void soundmod_add(int modisenabled, char* inbuffer, int inbuffersize, struct soundmod *m)
+void soundmod_add(char* inbuffer, int inbuffersize, struct soundmod *m)
 {
 	int i;
 	signed short *inshort, *vfshort;
 
-	pthread_mutex_lock(&modmutex);
-	if (modisenabled)
+	pthread_mutex_lock(&(m->modmutex));
+	if (m->enabled)
 	{
-		soundvfo_add(TRUE, inbuffer, inbuffersize, &(m->v));
+		soundvfo_add(inbuffer, inbuffersize, &(m->v));
 		inshort = (signed short *)inbuffer;
 		vfshort = (signed short *)m->v.vfobuf;
 		for(i=0;i<m->v.inbuffersamples;)
@@ -2205,7 +2215,7 @@ void soundmod_add(int modisenabled, char* inbuffer, int inbuffersize, struct sou
 			m->v.readfront %= m->v.vfobufsamples;
 		}
 	}
-	pthread_mutex_unlock(&modmutex);
+	pthread_mutex_unlock(&(m->modmutex));
 }
 
 void soundmod_close(struct soundmod *m)
@@ -2215,14 +2225,14 @@ void soundmod_close(struct soundmod *m)
 
 void Modulator_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundmod *m)
 {
-	pthread_mutex_lock(&modmutex);
-	m->modfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
-	m->moddepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
-	m->format = format;
-	m->rate = rate;
-	m->channels = channels;
-	soundmod_init(m->modfreq, m->moddepth, m->format, m->rate, m->channels, m);
-	pthread_mutex_unlock(&modmutex);
+	pthread_mutex_lock(&(m->modmutex));
+	soundmod_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15)), format, rate, channels, m);
+	pthread_mutex_unlock(&(m->modmutex));
+}
+
+void Modulator_closeAll(struct soundmod *m)
+{
+	soundmod_close(m);
 }
 
 // Chorus
@@ -2231,14 +2241,13 @@ void Modulator_initAll(snd_pcm_format_t format, float rate, unsigned int channel
 float chofreq[MAXCHORUS] = {0.307, 0.409, 0.509}; // modulation frequencies
 float chodepth[MAXCHORUS] = {0.4, 0.4, 0.4}; // modulation depths in percent 0 .. 1.0
 
-int choenabled = 0;
-pthread_mutex_t chomutex; // = PTHREAD_MUTEX_INITIALIZER;
-
 struct soundcho
 {
 	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
 	unsigned int rate; // sampling rate
 	unsigned int channels; // channels
+	int enabled;
+	pthread_mutex_t chomutex; // = PTHREAD_MUTEX_INITIALIZER;
 
 	int maxcho;
 	struct soundvfo v[MAXCHORUS];
@@ -2256,22 +2265,23 @@ void soundcho_init(int maxcho, snd_pcm_format_t format, unsigned int rate, unsig
 	c->maxcho = maxcho;
 	for(i=0;i<maxcho;i++)
 	{
+		c->v[i].enabled = TRUE;
 		soundvfo_init(chofreq[i], chodepth[i], format, rate, channels, &(c->v[i]));
 	}
 }
 
-void soundcho_add(int choisenabled, char* inbuffer, int inbuffersize, struct soundcho *c)
+void soundcho_add(char* inbuffer, int inbuffersize, struct soundcho *c)
 {
 	int i,j;
 	signed short *inshort, *vfshort;
 	float prescale = 1.0 / sqrt(c->maxcho+1); // 1/sqrt(N+1);
 
-	pthread_mutex_lock(&chomutex);
-	if (choisenabled)
+	pthread_mutex_lock(&(c->chomutex));
+	if (c->enabled)
 	{
 		for(j=0;j<c->maxcho;j++)
 		{
-			soundvfo_add(TRUE, inbuffer, inbuffersize, &(c->v[j]));
+			soundvfo_add(inbuffer, inbuffersize, &(c->v[j]));
 		}
 		inshort = (signed short *)inbuffer;
 		for(i=0;i<c->v[0].inbuffersamples;)
@@ -2287,7 +2297,7 @@ void soundcho_add(int choisenabled, char* inbuffer, int inbuffersize, struct sou
 			}
 		}
 	}
-	pthread_mutex_unlock(&chomutex);
+	pthread_mutex_unlock(&(c->chomutex));
 }
 
 void soundcho_close(struct soundcho *c)
@@ -2301,17 +2311,164 @@ void soundcho_close(struct soundcho *c)
 
 void Chorus_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundcho *c)
 {
-	pthread_mutex_lock(&chomutex);
-	c->format = format;
-	c->rate = rate;
-	c->channels = channels;
-	c->maxcho = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16));
-	soundcho_init(c->maxcho, c->format, c->rate, c->channels, c);
-	pthread_mutex_unlock(&chomutex);
+	pthread_mutex_lock(&(c->chomutex));
+	soundcho_init((int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16)), format, rate, channels, c);
+	pthread_mutex_unlock(&(c->chomutex));
+}
+
+void Chorus_closeAll(struct soundcho *c)
+{
+	pthread_mutex_lock(&(c->chomutex));
+	soundcho_close(c);
+	pthread_mutex_unlock(&(c->chomutex));
+}
+
+// Mono
+
+struct soundmono
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+	float threshold;
+	float gain;
+
+	pthread_mutex_t monomutex; // = PTHREAD_MUTEX_INITIALIZER;
+	int initialized;
+	int enabled;
+	int physicalwidth;
+	int insamples;
+	float prescale;
+};
+
+struct soundmono sndmono1, sndmono2;
+
+void soundmono_init(snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundmono *m)
+{
+	m->format = format;
+	m->rate = rate;
+	m->channels = channels;
+
+	m->initialized = FALSE;
+	m->prescale = 1.0/sqrt(m->channels);
+}
+
+void soundmono_add(char* inbuffer, int inbuffersize, struct soundmono *m)
+{
+	pthread_mutex_lock(&(m->monomutex));
+	if (m->enabled)
+	{
+		if (!m->initialized)
+		{
+			m->physicalwidth = snd_pcm_format_width(m->format); // bits per sample
+			m->insamples = inbuffersize / m->physicalwidth * 8;
+			m->initialized = TRUE;
+		}
+		signed short *inshort = (signed short *)inbuffer;
+		int i,j;
+		for(i=0;i<m->insamples;)
+		{
+			signed short value = 0;
+			for(j=0;j<m->channels;j++) value+=inshort[i+j]*m->prescale;
+			for(j=0;j<m->channels;j++) inshort[i++]=value;
+		}
+	}
+	pthread_mutex_unlock(&(m->monomutex));
+}
+
+void soundmono_close(struct soundmono *m)
+{
+}
+
+void Mono_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundmono *m)
+{
+	pthread_mutex_lock(&(m->monomutex));
+	soundmono_init(format, rate, channels, m);
+	pthread_mutex_unlock(&(m->monomutex));
+}
+
+void Mono_closeAll(struct soundmono *m)
+{
+	pthread_mutex_lock(&(m->monomutex));
+	soundmono_close(m);
+	pthread_mutex_unlock(&(m->monomutex));
 }
 
 // Haas
 
+struct soundhaas
+{
+	snd_pcm_format_t format; // SND_PCM_FORMAT_S16
+	unsigned int rate; // sampling rate
+	unsigned int channels; // channels
+	float threshold;
+	float gain;
+
+	pthread_mutex_t haasmutex; // = PTHREAD_MUTEX_INITIALIZER;
+	int initialized;
+	int enabled;
+	int physicalwidth;
+	int insamples;
+
+	struct sounddelay haasdly;
+};
+
+struct soundhaas sndhaas;
+
+void soundhaas_init(float millisec, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundhaas *h)
+{
+	h->format = format;
+	h->rate = rate;
+	h->channels = channels;
+
+	h->initialized = FALSE;
+	h->haasdly.enabled = TRUE;
+	sounddelay_init(1, DLY_DELAY, millisec, 1, format, rate, channels, &(h->haasdly));
+}
+
+void soundhaas_add(char* inbuffer, int inbuffersize, struct soundhaas *h)
+{
+	pthread_mutex_lock(&(h->haasmutex));
+	if (h->enabled)
+	{
+		if (!h->initialized)
+		{
+			h->physicalwidth = snd_pcm_format_width(h->format); // bits per sample
+			h->insamples = inbuffersize / h->physicalwidth * 8;
+			h->initialized = TRUE;
+		}
+		sounddelay_add(inbuffer, inbuffersize, &(h->haasdly));
+		signed short *inshort = (signed short *)inbuffer;
+		signed short *fbuffer = h->haasdly.fshort;
+		int i;
+		for(i=0;i<h->insamples;)
+		{
+			inshort[i++] *= 0.7; h->haasdly.readfront++; // rescale left channel
+			inshort[i++] = fbuffer[h->haasdly.readfront++]; // Haas effect on right channel
+			h->haasdly.readfront%=h->haasdly.fbuffersamples;
+		}
+	}
+	pthread_mutex_unlock(&(h->haasmutex));
+}
+
+void soundhaas_close(struct soundhaas *h)
+{
+	sounddelay_close(&(h->haasdly));
+}
+
+void Haas_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundhaas *h)
+{
+	pthread_mutex_lock(&(h->haasmutex));
+	soundhaas_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton17)), format, rate, channels, h);
+	pthread_mutex_unlock(&(h->haasmutex));
+}
+
+void Haas_closeAll(struct soundhaas *h)
+{
+	pthread_mutex_lock(&(h->haasmutex));
+	soundhaas_close(h);
+	pthread_mutex_unlock(&(h->haasmutex));
+}
 
 // ADT
 
@@ -2391,12 +2548,15 @@ int play_period(snd_pcm_t *handle, struct audioqueue *p)
 		if (p->dst_data[0])
 		{
 			BiQuad_process(p->dst_data[0], p->dst_bufsize, snd_pcm_format_width(format)/8*channels);
-			sounddelay_add(dlyenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &snddly);
-			soundreverb_add(rvrbenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndreverb);
-			soundtremolo_add(tremoloenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndtremolo);
-			soundfoldingdistort_add(fdenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndflddistort);
-			soundmod_add(modenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndmod);
-			soundcho_add(choenabled, (char*)p->dst_data[0], (int)p->dst_bufsize, &sndchorus);
+			sounddelay_add((char*)p->dst_data[0], (int)p->dst_bufsize, &snddly);
+			soundreverb_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndreverb);
+			soundtremolo_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndtremolo);
+			soundfoldingdistort_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndflddistort);
+			soundmod_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndmod);
+			soundcho_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndchorus);
+			soundmono_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndmono1);
+			soundhaas_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndhaas);
+			soundmono_add((char*)p->dst_data[0], (int)p->dst_bufsize, &sndmono2);
 			framecount = p->dst_bufsize/(snd_pcm_format_width(format)/8*channels); // in frames
 			if (framecount)
 				err = snd_pcm_writei(handle, p->dst_data[0], framecount);
@@ -3148,6 +3308,9 @@ int open_file(char * filename)
 	FoldingDistortion_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndflddistort);
 	Modulator_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndmod);
 	Chorus_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndchorus);
+	Mono_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndmono1);
+	Haas_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndhaas);
+	Mono_initAll(SND_PCM_FORMAT_S16, pCodecCtxA->sample_rate, pCodecCtxA->channels, &sndmono2);
 	return 0;
 }
 
@@ -3409,10 +3572,15 @@ get_first_time_microseconds_2();
 	pthread_mutex_destroy(&seekmutex);
 	pthread_mutex_destroy(&framemutex);
 
-	sounddelay_close(&snddly);
-	soundreverb_close(&sndreverb);
-	soundfoldingdistort_close(&sndflddistort);
-	soundmod_close(&sndmod);
+	Delay_closeAll(&snddly);
+	Reverb_closeAll(&sndreverb);
+	Tremolo_closeAll(&sndtremolo);
+	FoldingDistortion_closeAll(&sndflddistort);
+	Modulator_closeAll(&sndmod);
+	Chorus_closeAll(&sndchorus);
+	Mono_closeAll(&sndmono1);
+	Haas_closeAll(&sndhaas);
+	Mono_closeAll(&sndmono2);
 	close_sound();
 
 	free(swr);
@@ -4740,7 +4908,7 @@ static void dly_toggled(GtkWidget *togglebutton, gpointer data)
 {
 	gchar *strval;
 
-	pthread_mutex_lock(&delaymutex);
+	pthread_mutex_lock(&(snddly.delaymutex));
 
 	g_object_get((gpointer)combodelaytype, "active-id", &strval, NULL);
 	//printf("Selected id %s\n", strval);
@@ -4749,8 +4917,8 @@ static void dly_toggled(GtkWidget *togglebutton, gpointer data)
 	snddly.millisec = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton5));
 	snddly.feedback = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton6));
 
-	dlyenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (dlyenabled)
+	snddly.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (snddly.enabled)
 	{
 		sounddelay_init(1, snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
@@ -4759,20 +4927,20 @@ static void dly_toggled(GtkWidget *togglebutton, gpointer data)
 		sounddelay_close(&snddly);
 	}
 
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(snddly.delaymutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dlyenable)));
 }
 
 static void delay_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&delaymutex);
+	pthread_mutex_lock(&(snddly.delaymutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (dlyenabled)
+	if (snddly.enabled)
 	{
 		sounddelay_close(&snddly);
 		sounddelay_init(1, snddly.delaytype, newvalue, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(snddly.delaymutex));
 }
 
 void select_delay_types()
@@ -4785,8 +4953,8 @@ static void delaytype_changed(GtkWidget *combo, gpointer data)
 {
 	gchar *strval;
 
-	pthread_mutex_lock(&delaymutex);
-	if (dlyenabled)
+	pthread_mutex_lock(&(snddly.delaymutex));
+	if (snddly.enabled)
 	{
 		sounddelay_close(&snddly);
 		g_object_get((gpointer)combo, "active-id", &strval, NULL);
@@ -4795,29 +4963,29 @@ static void delaytype_changed(GtkWidget *combo, gpointer data)
 		g_free(strval);
 		sounddelay_init(1, snddly.delaytype, snddly.millisec, snddly.feedback, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(snddly.delaymutex));
 }
 
 static void feedback_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&delaymutex);
+	pthread_mutex_lock(&(snddly.delaymutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (dlyenabled)
+	if (snddly.enabled)
 	{
 		sounddelay_close(&snddly);
 		sounddelay_init(1, snddly.delaytype, snddly.millisec, newvalue, snddly.format, snddly.rate, snddly.channels, &snddly);
 	}
-	pthread_mutex_unlock(&delaymutex);
+	pthread_mutex_unlock(&(snddly.delaymutex));
 }
 
 static void rvrb_toggled(GtkWidget *togglebutton, gpointer data)
 {
-	pthread_mutex_lock(&reverbmutex);
+	pthread_mutex_lock(&(sndreverb.reverbmutex));
 
 	sndreverb.feedback = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7));
 
-	rvrbenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (rvrbenabled)
+	sndreverb.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndreverb.enabled)
 	{
 		soundreverb_init(sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
@@ -4826,197 +4994,248 @@ static void rvrb_toggled(GtkWidget *togglebutton, gpointer data)
 		soundreverb_close(&sndreverb);
 	}
 
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rvrbenable)));
 }
 
 static void rvrbfeedback_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&reverbmutex);
+	pthread_mutex_lock(&(sndreverb.reverbmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (rvrbenabled)
+	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
 		soundreverb_init(newvalue, sndreverb.presence, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
 
 static void rvrbpresence_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&reverbmutex);
+	pthread_mutex_lock(&(sndreverb.reverbmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (rvrbenabled)
+	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
 		soundreverb_init(sndreverb.feedback, newvalue, sndreverb.LPFfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
 
 static void rvrbLPF_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&reverbmutex);
+	pthread_mutex_lock(&(sndreverb.reverbmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (rvrbenabled)
+	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
 		soundreverb_init(sndreverb.feedback, sndreverb.presence, newvalue, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
-	pthread_mutex_unlock(&reverbmutex);
+	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
 
 static void tremolo_toggled(GtkWidget *togglebutton, gpointer data)
 {
-	pthread_mutex_lock(&tremolomutex);
+	pthread_mutex_lock(&(sndtremolo.tremolomutex));
 
-	sndtremolo.depth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton9));
-	sndtremolo.tremolorate = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton10));
-
-	tremoloenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (tremoloenabled)
+	sndtremolo.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndtremolo.enabled)
 	{
-		soundtremolo_init(sndtremolo.depth, sndtremolo.tremolorate, sndtremolo.format, sndtremolo.rate, sndtremolo.channels, &sndtremolo);
+		soundtremolo_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton9)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton10)), 
+						sndtremolo.format, sndtremolo.rate, sndtremolo.channels, &sndtremolo);
 	}
 	else
 	{
+		soundtremolo_close(&sndtremolo);
 	}
 
-	pthread_mutex_unlock(&tremolomutex);
+	pthread_mutex_unlock(&(sndtremolo.tremolomutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(tremoloenable)));
 }
 
 static void tremolodepth_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&tremolomutex);
+	pthread_mutex_lock(&(sndtremolo.tremolomutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (tremoloenabled)
+	if (sndtremolo.enabled)
 	{
+		soundtremolo_close(&sndtremolo);
 		soundtremolo_init(newvalue, sndtremolo.tremolorate, sndtremolo.format, sndtremolo.rate, sndtremolo.channels, &sndtremolo);
 	}
-	pthread_mutex_unlock(&tremolomutex);
+	pthread_mutex_unlock(&(sndtremolo.tremolomutex));
 }
 
 static void tremolorate_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&tremolomutex);
+	pthread_mutex_lock(&(sndtremolo.tremolomutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (tremoloenabled)
+	if (sndtremolo.enabled)
 	{
+		soundtremolo_close(&sndtremolo);
 		soundtremolo_init(sndtremolo.depth, newvalue, sndtremolo.format, sndtremolo.rate, sndtremolo.channels, &sndtremolo);
 	}
-	pthread_mutex_unlock(&tremolomutex);
+	pthread_mutex_unlock(&(sndtremolo.tremolomutex));
 }
 
 static void fd_toggled(GtkWidget *togglebutton, gpointer data)
 {
-	pthread_mutex_lock(&fdmutex);
-	sndflddistort.threshold = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12));
-	sndflddistort.gain = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13));
+	pthread_mutex_lock(&(sndflddistort.fdmutex));
 
-	fdenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (fdenabled)
+	sndflddistort.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndflddistort.enabled)
 	{
-		soundfoldingdistort_init(sndflddistort.threshold, sndflddistort.gain, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
+		soundfoldingdistort_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton12)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton13)),
+								sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
 	}
 	else
 	{
 		soundfoldingdistort_close(&sndflddistort);
 	}
-	pthread_mutex_unlock(&fdmutex);
+
+	pthread_mutex_unlock(&(sndflddistort.fdmutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(tremoloenable)));
 }
 
 static void fdthreshold_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&fdmutex);
+	pthread_mutex_lock(&(sndflddistort.fdmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (fdenabled)
+	if (sndflddistort.enabled)
 	{
+		soundfoldingdistort_close(&sndflddistort);
 		soundfoldingdistort_init(newvalue, sndflddistort.gain, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
 	}
-	pthread_mutex_unlock(&fdmutex);
+	pthread_mutex_unlock(&(sndflddistort.fdmutex));
 }
 
 static void fdgain_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&fdmutex);
+	pthread_mutex_lock(&(sndflddistort.fdmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (fdenabled)
+	if (sndflddistort.enabled)
 	{
+		soundfoldingdistort_close(&sndflddistort);
 		soundfoldingdistort_init(sndflddistort.threshold, newvalue, sndflddistort.format, sndflddistort.rate, sndflddistort.channels, &sndflddistort);
 	}
-	pthread_mutex_unlock(&fdmutex);
+	pthread_mutex_unlock(&(sndflddistort.fdmutex));
 }
 
 static void mod_toggled(GtkWidget *togglebutton, gpointer data)
 {
-	pthread_mutex_lock(&modmutex);
-	sndmod.modfreq = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14));
-	sndmod.moddepth = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15));
+	pthread_mutex_lock(&(sndmod.modmutex));
 
-	modenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (modenabled)
+	sndmod.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndmod.enabled)
 	{
-		soundmod_init(sndmod.modfreq, sndmod.moddepth, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
+		soundmod_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton14)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton15)), 
+					sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
 	}
 	else
 	{
 		soundmod_close(&sndmod);
 	}
-	pthread_mutex_unlock(&modmutex);
+	pthread_mutex_unlock(&(sndmod.modmutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(modenable)));
 }
 
 static void modfreq_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&modmutex);
+	pthread_mutex_lock(&(sndmod.modmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (modenabled)
+	if (sndmod.enabled)
 	{
+		soundmod_close(&sndmod);
 		soundmod_init(newvalue, sndmod.moddepth, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
 	}
-	pthread_mutex_unlock(&modmutex);
+	pthread_mutex_unlock(&(sndmod.modmutex));
 }
 
 static void moddepth_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&modmutex);
+	pthread_mutex_lock(&(sndmod.modmutex));
 	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (modenabled)
+	if (sndmod.enabled)
 	{
+		soundmod_close(&sndmod);
 		soundmod_init(sndmod.modfreq, newvalue, sndmod.format, sndmod.rate, sndmod.channels, &sndmod);
 	}
-	pthread_mutex_unlock(&modmutex);
+	pthread_mutex_unlock(&(sndmod.modmutex));
 }
 
 static void cho_toggled(GtkWidget *togglebutton, gpointer data)
 {
-	pthread_mutex_lock(&chomutex);
-	sndchorus.maxcho = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16));
+	pthread_mutex_lock(&(sndchorus.chomutex));
 
-	choenabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
-	if (choenabled)
+	sndchorus.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndchorus.enabled)
 	{
-		soundcho_init(sndchorus.maxcho, sndchorus.format, sndchorus.rate, sndchorus.channels, &sndchorus);
+		soundcho_init((int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton16)), sndchorus.format, sndchorus.rate, sndchorus.channels, &sndchorus);
 	}
 	else
 	{
 		soundcho_close(&sndchorus);
 	}
-	pthread_mutex_unlock(&chomutex);
+	pthread_mutex_unlock(&(sndchorus.chomutex));
 	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(choenable)));
 }
 
 static void cho_changed(GtkWidget *widget, gpointer data)
 {
-	pthread_mutex_lock(&chomutex);
+	pthread_mutex_lock(&(sndchorus.chomutex));
 	int newvalue = (int)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
-	if (choenabled)
+	if (sndchorus.enabled)
 	{
+		soundcho_close(&sndchorus);
 		soundcho_init(newvalue, sndchorus.format, sndchorus.rate, sndchorus.channels, &sndchorus);
 	}
-	pthread_mutex_unlock(&chomutex);
+	pthread_mutex_unlock(&(sndchorus.chomutex));
+}
+
+static void mn_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	struct soundmono *mn = (struct soundmono *)data;
+
+	pthread_mutex_lock(&(mn->monomutex));
+	mn->enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (mn->enabled)
+	{
+		soundmono_close(mn);
+		soundmono_init(mn->format, mn->rate, mn->channels, mn);
+	}
+	else
+	{
+		soundmono_close(mn);
+	}
+	pthread_mutex_unlock(&(mn->monomutex));
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton)));
+}
+
+static void haas_toggled(GtkWidget *togglebutton, gpointer data)
+{
+	pthread_mutex_lock(&(sndhaas.haasmutex));
+	sndhaas.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
+	if (sndhaas.enabled)
+	{
+		soundhaas_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton17)), sndhaas.format, sndhaas.rate, sndhaas.channels, &sndhaas);
+	}
+	else
+	{
+		soundhaas_close(&sndhaas);
+	}
+	pthread_mutex_unlock(&(sndhaas.haasmutex));
+	//printf("toggle state %d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(modenable)));
+}
+
+static void haasdly_changed(GtkWidget *widget, gpointer data)
+{
+	pthread_mutex_lock(&(sndhaas.haasmutex));
+	float newvalue = (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+	if (sndhaas.enabled)
+	{
+		soundhaas_close(&sndhaas);
+		soundhaas_init(newvalue, sndhaas.format, sndhaas.rate, sndhaas.channels, &sndhaas);
+	}
+	pthread_mutex_unlock(&(sndhaas.haasmutex));
 }
 
 int main(int argc, char** argv)
@@ -5028,51 +5247,71 @@ int main(int argc, char** argv)
 	int daheight = playerHeight;
 
 	int ret;
-	if ((ret=pthread_mutex_init(&eqmutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&eqmutex, NULL)))
 	{
 		printf("EQ mutex init failed, %d\n", ret);
 		return -1;
 	}
 
-	if ((ret=pthread_mutex_init(&delaymutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(snddly.delaymutex), NULL)))
 	{
 		printf("Delay mutex init failed, %d\n", ret);
-		return -1;
 	}
 
-	if ((ret=pthread_mutex_init(&reverbmutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(sndreverb.reverbmutex), NULL)))
 	{
 		printf("Reverb mutex init failed, %d\n", ret);
 		return -1;
 	}
+	int i;
+	for(i=0; i<REVERBDLINES; i++)
+	{
+		if ((ret=pthread_mutex_init(&(sndreverb.snddlyrev[i].delaymutex), NULL)))
+		{
+			printf("Reverb delay mutex init failed, %d\n", ret);
+			return -1;
+		}
+	}
 
-	if ((ret=pthread_mutex_init(&tremolomutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(sndtremolo.tremolomutex), NULL)))
 	{
 		printf("Tremolo mutex init failed, %d\n", ret);
 		return -1;
 	}
 
-	if ((ret=pthread_mutex_init(&fdmutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(sndflddistort.fdmutex), NULL)))
 	{
 		printf("Distortion mutex init failed, %d\n", ret);
 		return -1;
 	}
 
-	if ((ret=pthread_mutex_init(&vfomutex, NULL))!=0 )
-	{
-		printf("VFO mutex init failed, %d\n", ret);
-		return -1;
-	}
-
-	if ((ret=pthread_mutex_init(&modmutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(sndmod.modmutex), NULL)))
 	{
 		printf("Modulator mutex init failed, %d\n", ret);
 		return -1;
 	}
 
-	if ((ret=pthread_mutex_init(&chomutex, NULL))!=0 )
+	if ((ret=pthread_mutex_init(&(sndchorus.chomutex), NULL)))
 	{
 		printf("Chorus mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&(sndmono1.monomutex), NULL)))
+	{
+		printf("Mono mutex1 init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&(sndhaas.haasmutex), NULL)))
+	{
+		printf("Haas mutex init failed, %d\n", ret);
+		return -1;
+	}
+
+	if ((ret=pthread_mutex_init(&(sndmono2.monomutex), NULL)))
+	{
+		printf("Mono mutex2 init failed, %d\n", ret);
 		return -1;
 	}
 
@@ -5383,8 +5622,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framedelay1), dlybox1);
 
 // checkbox
+	snddly.enabled = FALSE;
 	dlyenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dlyenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dlyenable), snddly.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(dlyenable), "toggled", G_CALLBACK(dly_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(dlybox1), dlyenable);
 
@@ -5426,8 +5666,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framervrb1), rvrbbox1);
 
 // checkbox
+	sndreverb.enabled = FALSE;
 	rvrbenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rvrbenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rvrbenable),sndreverb.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(rvrbenable), "toggled", G_CALLBACK(rvrb_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrbenable);
 
@@ -5470,8 +5711,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(frametremolo1), tremolobox1);
 
 // checkbox
+	sndtremolo.enabled = FALSE;
 	tremoloenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tremoloenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tremoloenable), sndtremolo.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(tremoloenable), "toggled", G_CALLBACK(tremolo_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(tremolobox1), tremoloenable);
 
@@ -5504,8 +5746,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framefd1), fdbox1);
 
 // checkbox
+	sndflddistort.enabled = FALSE;
 	fdenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fdenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fdenable), sndflddistort.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(fdenable), "toggled", G_CALLBACK(fd_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(fdbox1), fdenable);
 
@@ -5538,8 +5781,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framemod1), modbox1);
 
 // checkbox
+	sndmod.enabled = FALSE;
 	modenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(modenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(modenable), sndmod.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(modenable), "toggled", G_CALLBACK(mod_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(modbox1), modenable);
 
@@ -5572,8 +5816,9 @@ int main(int argc, char** argv)
     gtk_container_add(GTK_CONTAINER(framecho1), chobox1);
 
 // checkbox
+	sndchorus.enabled = FALSE;
 	choenable = gtk_check_button_new_with_label("Enable");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choenable), FALSE);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(choenable), sndchorus.enabled);
 	g_signal_connect(GTK_TOGGLE_BUTTON(choenable), "toggled", G_CALLBACK(cho_toggled), NULL);
 	gtk_container_add(GTK_CONTAINER(chobox1), choenable);
 
@@ -5587,7 +5832,46 @@ int main(int argc, char** argv)
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton16), "value-changed", G_CALLBACK(cho_changed), NULL);
 	gtk_container_add(GTK_CONTAINER(chobox1), spinbutton16);
 
-// Haas
+// haas frame
+    framehaas1 = gtk_frame_new("Haas");
+    gtk_container_add(GTK_CONTAINER(dlyvbox), framehaas1);
+
+// horizontal box
+    haasbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_add(GTK_CONTAINER(framehaas1), haasbox1);
+    
+// mono checkbox 1
+	sndmono1.enabled = FALSE;
+	mnenable1 = gtk_check_button_new_with_label("Mono");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mnenable1), sndmono1.enabled);
+	g_signal_connect(GTK_TOGGLE_BUTTON(mnenable1), "toggled", G_CALLBACK(mn_toggled), (gpointer)&sndmono1);
+	gtk_container_add(GTK_CONTAINER(haasbox1), mnenable1);
+
+// haas enable
+	sndhaas.enabled = FALSE;
+	haasenable = gtk_check_button_new_with_label("Haas");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(haasenable), sndhaas.enabled);
+	g_signal_connect(GTK_TOGGLE_BUTTON(haasenable), "toggled", G_CALLBACK(haas_toggled), NULL);
+	gtk_container_add(GTK_CONTAINER(haasbox1), haasenable);
+
+// haas delay
+	haaslabel1 = gtk_label_new("Delay");
+	gtk_widget_set_size_request(haaslabel1, 100, 30);
+	gtk_container_add(GTK_CONTAINER(haasbox1), haaslabel1);
+	spinbutton17 = gtk_spin_button_new_with_range(1.0, 30.0 , 0.1);
+	gtk_widget_set_size_request(spinbutton17, 120, 30);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton17), 15.0);
+	g_signal_connect(GTK_SPIN_BUTTON(spinbutton17), "value-changed", G_CALLBACK(haasdly_changed), NULL);
+	gtk_container_add(GTK_CONTAINER(haasbox1), spinbutton17);
+
+// mono checkbox 2
+	sndmono2.enabled = FALSE;
+	mnenable2 = gtk_check_button_new_with_label("Mono");
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mnenable2), sndmono2.enabled);
+	g_signal_connect(GTK_TOGGLE_BUTTON(mnenable2), "toggled", G_CALLBACK(mn_toggled), (gpointer)&sndmono2);
+	gtk_container_add(GTK_CONTAINER(haasbox1), mnenable2);
+
+
 
 // ADT
 
