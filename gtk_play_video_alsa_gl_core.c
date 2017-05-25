@@ -213,12 +213,16 @@ GtkWidget *feedbacklabel1;
 GtkWidget *spinbutton6;
 
 GtkWidget *framervrb1;
+GtkWidget *rvrbboxv;
 GtkWidget *rvrbbox1;
 GtkWidget *rvrbenable;
 GtkWidget *rvrblabel1;
 GtkWidget *spinbutton7;
 GtkWidget *rvrblabel2;
 GtkWidget *spinbutton8;
+GtkWidget *rvrbbox2;
+GtkWidget *rvrbdelays;
+GtkWidget *comborvrbdelays;
 GtkWidget *rvrblabel3;
 GtkWidget *spinbutton11;
 GtkWidget *rvrblabel4;
@@ -1769,8 +1773,6 @@ void Delay_closeAll(struct sounddelay *s)
 //float reverbprimes[REVERBDLINES] = {293.0, 313.0, 347.0, 367.0, 383.0, 409.0, 431.0, 449.0, 463.0, 491.0, 509.0, 547.0, 569.0, 593.0, 613.0, 631.0};
 float reverbprimes[REVERBDLINES] = {293.0, 307.0, 313.0, 331.0, 347.0, 367.0, 373.0, 383.0, 409.0, 419.0, 431.0, 449.0, 457.0, 463.0, 491.0, 509.0, 547.0, 557.0, 569.0, 577.0, 593.0, 613.0, 619.0, 631.0};
 
-int reverbdelaylines = 12;
-
 /*
            293    307    311    313    317    331    337    347    349 
     353    359    367    373    379    383    389    397    401    409 
@@ -1782,6 +1784,7 @@ int reverbdelaylines = 12;
 
 struct soundreverb
 {
+	int reverbdelaylines;
 	struct sounddelay snddlyrev[REVERBDLINES];
 	char* bbuf;
 
@@ -1821,19 +1824,21 @@ void RevBiQuad_process(uint8_t *buf, int bufsize, int bytesinsample, struct soun
 	}
 }
 
-void soundreverb_init(float feedback, float presence, float LPFf, float LSHf, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundreverb *r)
+void soundreverb_init(int delaylines, float feedback, float presence, float LPFf, float LSHf, snd_pcm_format_t format, unsigned int rate, unsigned int channels, struct soundreverb *r)
 {
 	int i;
-	for(i=0; i<reverbdelaylines; i++)
-	{
-		r->snddlyrev[i].enabled = TRUE;
-		sounddelay_init(reverbdelaylines, DLY_REVERB, reverbprimes[i], feedback, format, rate, channels, &(r->snddlyrev[i]));
-	}
+	r->reverbdelaylines = delaylines;
 	r->format = format;
 	r->rate = rate;
 	r->channels = channels;
 	r->feedback = feedback;
 	r->presence = presence;
+	for(i=0; i<r->reverbdelaylines; i++)
+	{
+		r->snddlyrev[i].enabled = TRUE;
+		sounddelay_init(r->reverbdelaylines, DLY_REVERB, reverbprimes[i], feedback, format, rate, channels, &(r->snddlyrev[i]));
+	}
+
 	r->LPFfreq = LPFf;
 	r->LSHfreq = LSHf;
 	r->bbuf = NULL;
@@ -1853,7 +1858,7 @@ void soundreverb_add(char* inbuffer, int inbuffersize, struct soundreverb *r)
 	pthread_mutex_lock(&(r->reverbmutex));
 	if (r->enabled)
 	{
-		for(i=0; i<reverbdelaylines; i++)
+		for(i=0; i<r->reverbdelaylines; i++)
 		{
 			sounddelay_add(inbuffer, inbuffersize, &(r->snddlyrev[i]));
 		}
@@ -1864,7 +1869,7 @@ void soundreverb_add(char* inbuffer, int inbuffersize, struct soundreverb *r)
 		}
 		memset(r->bbuf, 0, inbuffersize);
 		dstbuf = (signed short*)r->bbuf;
-		for(i=0; i<reverbdelaylines; i++)
+		for(i=0; i<r->reverbdelaylines; i++)
 		{
 			srcbuf = (signed short*)r->snddlyrev[i].fbuffer;
 			readfront = &(r->snddlyrev[i].readfront);
@@ -1892,7 +1897,7 @@ void soundreverb_close(struct soundreverb *r)
 {
 	int i;
 
-	for(i=0; i<reverbdelaylines; i++)
+	for(i=0; i<r->reverbdelaylines; i++)
 	{
 		if (r->snddlyrev[i].fbuffer)
 		{
@@ -1909,10 +1914,17 @@ void soundreverb_close(struct soundreverb *r)
 
 void Reverb_initAll(snd_pcm_format_t format, float rate, unsigned int channels, struct soundreverb *r)
 {
+	int count;
+	gchar *strval;
+
 	pthread_mutex_lock(&(r->reverbmutex));
-	soundreverb_init((float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton8)), 
+	g_object_get((gpointer)comborvrbdelays, "active-id", &strval, NULL);
+	//printf("Selected id %s\n", strval);
+	count = atoi((const char *)strval);
+	soundreverb_init(count, (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton7)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton8)), 
 					(float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton11)), (float)gtk_spin_button_get_value(GTK_SPIN_BUTTON(spinbutton11)),
 					format, rate, channels, r);
+	g_free(strval);
 	pthread_mutex_unlock(&(r->reverbmutex));
 }
 
@@ -4053,6 +4065,7 @@ static void realize_cb(GtkWidget *widget, gpointer data)
 	resize_containers();
 	g_object_set((gpointer)combopreset, "active-id", "0", NULL);
 	g_object_set((gpointer)combodelaytype, "active-id", "0", NULL);
+	g_object_set((gpointer)comborvrbdelays, "active-id", "12", NULL);
 }
 
 static void button1_clicked(GtkWidget *button, gpointer data)
@@ -5005,6 +5018,34 @@ void select_delay_types()
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combodelaytype), "3", "Late");
 }
 
+void select_delay_lines()
+{
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "1", "1 Delay");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "2", "2 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "3", "3 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "4", "4 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "5", "5 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "6", "6 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "7", "7 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "8", "8 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "9", "9 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "10", "10 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "11", "11 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "12", "12 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "13", "13 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "14", "14 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "15", "15 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "16", "16 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "17", "17 Delay");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "18", "18 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "19", "19 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "20", "20 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "21", "21 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "22", "22 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "23", "23 Delays");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(comborvrbdelays), "24", "24 Delays");
+}
+
 static void delaytype_changed(GtkWidget *combo, gpointer data)
 {
 	gchar *strval;
@@ -5043,7 +5084,7 @@ static void rvrb_toggled(GtkWidget *togglebutton, gpointer data)
 	sndreverb.enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(togglebutton));
 	if (sndreverb.enabled)
 	{
-		soundreverb_init(sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.reverbdelaylines, sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	else
 	{
@@ -5061,7 +5102,7 @@ static void rvrbfeedback_changed(GtkWidget *widget, gpointer data)
 	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(newvalue, sndreverb.presence, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.reverbdelaylines, newvalue, sndreverb.presence, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
@@ -5073,7 +5114,7 @@ static void rvrbpresence_changed(GtkWidget *widget, gpointer data)
 	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(sndreverb.feedback, newvalue, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.reverbdelaylines, sndreverb.feedback, newvalue, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
@@ -5085,7 +5126,24 @@ static void rvrbLPF_changed(GtkWidget *widget, gpointer data)
 	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(sndreverb.feedback, sndreverb.presence, newvalue, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.reverbdelaylines, sndreverb.feedback, sndreverb.presence, newvalue, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+	}
+	pthread_mutex_unlock(&(sndreverb.reverbmutex));
+}
+
+static void delaylines_changed(GtkWidget *combo, gpointer data)
+{
+	gchar *strval;
+
+	pthread_mutex_lock(&(sndreverb.reverbmutex));
+	if (sndreverb.enabled)
+	{
+		soundreverb_close(&sndreverb);
+		g_object_get((gpointer)combo, "active-id", &strval, NULL);
+		//printf("Selected id %s\n", strval);
+		sndreverb.reverbdelaylines = atoi((const char *)strval);
+		g_free(strval);
+		soundreverb_init(sndreverb.reverbdelaylines, sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, sndreverb.LSHfreq, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
@@ -5097,7 +5155,7 @@ static void rvrbLSH_changed(GtkWidget *widget, gpointer data)
 	if (sndreverb.enabled)
 	{
 		soundreverb_close(&sndreverb);
-		soundreverb_init(sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, newvalue, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
+		soundreverb_init(sndreverb.reverbdelaylines, sndreverb.feedback, sndreverb.presence, sndreverb.LPFfreq, newvalue, sndreverb.format, sndreverb.rate, sndreverb.channels, &sndreverb);
 	}
 	pthread_mutex_unlock(&(sndreverb.reverbmutex));
 }
@@ -5733,12 +5791,16 @@ int main(int argc, char** argv)
 	gtk_container_add(GTK_CONTAINER(dlybox1), spinbutton6);
 
 // reverb frame
-    framervrb1 = gtk_frame_new("Reverb");
-    gtk_container_add(GTK_CONTAINER(dlyvbox), framervrb1);
+	framervrb1 = gtk_frame_new("Reverb");
+	gtk_container_add(GTK_CONTAINER(dlyvbox), framervrb1);
+
+// vertical box
+	rvrbboxv = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
+	gtk_container_add(GTK_CONTAINER(framervrb1), rvrbboxv);
 
 // horizontal box
-    rvrbbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
-    gtk_container_add(GTK_CONTAINER(framervrb1), rvrbbox1);
+	rvrbbox1 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(rvrbboxv), rvrbbox1);
 
 // checkbox
 	sndreverb.enabled = FALSE;
@@ -5767,25 +5829,38 @@ int main(int argc, char** argv)
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton7), "value-changed", G_CALLBACK(rvrbfeedback_changed), NULL);
 	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton7);
 
+// horizontal box
+	rvrbbox2 = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_container_add(GTK_CONTAINER(rvrbboxv), rvrbbox2);
+
+// combobox
+	rvrbdelays = gtk_label_new("Delay Lines");
+	gtk_widget_set_size_request(rvrbdelays, 100, 30);
+	gtk_container_add(GTK_CONTAINER(rvrbbox2), rvrbdelays);
+    comborvrbdelays = gtk_combo_box_text_new();
+    select_delay_lines();
+    g_signal_connect(GTK_COMBO_BOX(comborvrbdelays), "changed", G_CALLBACK(delaylines_changed), NULL);
+    gtk_container_add(GTK_CONTAINER(rvrbbox2), comborvrbdelays);
+
 // LSH
 	rvrblabel4 = gtk_label_new("LSH (Hz)");
 	gtk_widget_set_size_request(rvrblabel4, 100, 30);
-	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrblabel4);
+	gtk_container_add(GTK_CONTAINER(rvrbbox2), rvrblabel4);
 	spinbutton18 = gtk_spin_button_new_with_range(1.0, 1000.0, 100.0);
 	gtk_widget_set_size_request(spinbutton18, 120, 30);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton18), 500.0);
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton18), "value-changed", G_CALLBACK(rvrbLSH_changed), NULL);
-	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton18);
+	gtk_container_add(GTK_CONTAINER(rvrbbox2), spinbutton18);
 
 // LPF
 	rvrblabel3 = gtk_label_new("LPF (Hz)");
 	gtk_widget_set_size_request(rvrblabel3, 100, 30);
-	gtk_container_add(GTK_CONTAINER(rvrbbox1), rvrblabel3);
+	gtk_container_add(GTK_CONTAINER(rvrbbox2), rvrblabel3);
 	spinbutton11 = gtk_spin_button_new_with_range(32.0, 20000.0, 100.0);
 	gtk_widget_set_size_request(spinbutton11, 120, 30);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(spinbutton11), 5000.0);
 	g_signal_connect(GTK_SPIN_BUTTON(spinbutton11), "value-changed", G_CALLBACK(rvrbLPF_changed), NULL);
-	gtk_container_add(GTK_CONTAINER(rvrbbox1), spinbutton11);
+	gtk_container_add(GTK_CONTAINER(rvrbbox2), spinbutton11);
 
 // tremolo frame
     frametremolo1 = gtk_frame_new("Tremolo");
